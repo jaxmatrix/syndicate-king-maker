@@ -8,10 +8,12 @@ Works for ANY business: Fast Food, Commercial Cleaning, Ad Agency, B2B SaaS, Har
 import os
 import json
 import math
+import re
 import time
 import uuid
 import urllib.request
 import urllib.parse
+from collections import Counter
 from typing import Dict, Any, List, Optional
 import sys
 sys.path.insert(0, '/opt/data')
@@ -66,6 +68,213 @@ class SyndicateGraphEngine:
         except Exception as e:
             print(f"Fetch error ({url}): {e}")
             return {}
+
+    # ------------------------------------------------------------------
+    # N1: EVIDENCE RETRIEVAL (real, citable)
+    # ------------------------------------------------------------------
+    SUBREDDIT_RE = re.compile(r'r/([A-Za-z0-9_]{3,30})')
+
+    def _fetch_subreddit_posts(self, subreddit: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Read real posts from a subreddit via the Anakin Reddit wire action.
+        Returns [] on any failure - never synthesised posts.
+        """
+        if not subreddit:
+            return []
+        try:
+            res = self.anakin.wire_read("rt_subreddit_posts", {"subreddit": subreddit, "limit": limit})
+        except Exception as e:
+            print(f"  ⚠ subreddit read failed for r/{subreddit}: {e}")
+            return []
+
+        if not isinstance(res, dict):
+            return []
+        # Shape: {data: {data: {posts: [...]}}}
+        posts = (((res.get("data") or {}).get("data") or {}).get("posts")) or []
+        out: List[Dict[str, Any]] = []
+        for p in posts:
+            permalink = p.get("permalink") or ""
+            url = p.get("url") or (
+                f"https://www.reddit.com{permalink}" if permalink.startswith("/") else ""
+            )
+            if not url:
+                continue
+            title = (p.get("title") or "").strip()
+            selftext = (p.get("selftext") or "").strip()
+            if not title and not selftext:
+                continue
+            out.append({
+                "subreddit": p.get("subreddit") or subreddit,
+                "title": title,
+                # Trim so the prompt stays inside a sane token budget.
+                "quote": selftext[:600] if selftext else title,
+                "url": url,
+                "date": p.get("created_utc") or "",
+            })
+        return out
+
+    def _condense_thread_markdown(self, md: str, limit: int = 1600) -> str:
+        """
+        Strip a scraped Reddit thread down to its substantive prose (post body +
+        comments), dropping navigation, avatars, timestamps and share chrome.
+        Keeps real human sentences, which is what makes the evidence citable.
+        """
+        drop_prefixes = (
+            "share", "archived post", "sorry, this post", "comments section",
+            "new comments cannot be posted", "log in", "sign up",
+        )
+        kept: List[str] = []
+        total = 0
+        for raw in md.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            low = line.lower()
+            if low.startswith(drop_prefixes):
+                continue
+            # Avatar / user-link lines and bare timestamps are noise.
+            if "profile --- avatar" in line:
+                continue
+            if re.fullmatch(r"\[\d+[ymhd] ago\]\([^)]*\)", line):
+                continue
+            # Drop bare links and one-word labels.
+            if line.startswith("[") and "](" in line and len(line) < 60:
+                continue
+            if len(line) < 45:
+                continue
+            kept.append(line)
+            total += len(line)
+            if total >= limit:
+                break
+        return " ".join(kept)[:limit]
+
+    def _fetch_thread_body(self, url: str) -> str:
+        """
+        Scrape a Reddit thread permalink and return condensed citable prose.
+        Returns "" on failure - the caller simply omits that evidence item.
+        """
+        if not url:
+            return ""
+        try:
+            res = self.anakin.scrape(url, generate_json=False)
+        except Exception as e:
+            print(f"  ⚠ thread scrape failed ({url[:60]}): {e}")
+            return ""
+        if not isinstance(res, dict):
+            return ""
+        md = res.get("markdown") or (res.get("data") or {}).get("markdown") or ""
+        if not isinstance(md, str) or not md.strip():
+            return ""
+        return self._condense_thread_markdown(md)
+
+    def collect_evidence(self, business_type: str, offering: str,
+                         sample_customers: str, max_items: int = 14) -> Dict[str, Any]:
+        """
+        Retrieve real, citable evidence about the sector from the live web and
+        from Reddit, and return it as a numbered evidence set.
+
+        Every item carries the URL it came from. Downstream reasoning is allowed
+        to cite ONLY these items, which is what makes the final result auditable.
+        A failed call degrades to fewer items - it never invents one.
+        """
+        queries = [
+            f"{business_type} {offering} problems complaints reddit".strip(),
+            f"{business_type} vendor complaints pricing reddit".strip(),
+            f"{business_type} customer pain points".strip(),
+        ]
+
+        sub_hits: Counter = Counter()
+        search_items: List[Dict[str, Any]] = []
+
+        # --- Phase 1: search, to discover both snippets and real subreddits ---
+        for q in queries:
+            try:
+                res = self.anakin.search(q, limit=5)
+            except Exception as e:
+                print(f"  ⚠ search failed ({q[:40]}...): {e}")
+                continue
+            if not isinstance(res, dict):
+                continue
+            for r in (res.get("results") or []):
+                snippet = (r.get("snippet") or "").strip()
+                url = (r.get("url") or r.get("link") or "").strip()
+                if not snippet or not url:
+                    continue
+                search_items.append({
+                    "kind": "search",
+                    "source": r.get("title") or url,
+                    "quote": snippet[:500],
+                    "url": url,
+                    "date": r.get("date") or "",
+                })
+                # Harvest subreddits actually referenced by the retrieved text.
+                for m in self.SUBREDDIT_RE.findall(f"{snippet} {url}"):
+                    sub_hits[m.lower()] += 1
+
+        # --- Phase 2: expand the Reddit threads the search actually surfaced ---
+        # A topic-matched thread, scraped with its comments, is far stronger
+        # evidence than a subreddit's generic front page, so expansion is the
+        # primary source and the hot-listing below is only a fallback.
+        reddit_items: List[Dict[str, Any]] = []
+        seen_threads = set()
+        for item in search_items:
+            if len(reddit_items) >= 4:
+                break
+            url = item["url"]
+            if "reddit.com/r/" not in url or "/comments/" not in url:
+                continue
+            if url in seen_threads:
+                continue
+            seen_threads.add(url)
+            body = self._fetch_thread_body(url)
+            if not body:
+                continue
+            reddit_items.append({
+                "kind": "reddit_thread",
+                "source": item["source"][:120],
+                "title": item["source"][:160],
+                "quote": body,
+                "url": url,
+                "date": item.get("date", ""),
+            })
+
+        # --- Phase 2b: fallback - read a named subreddit's recent posts ---
+        subs_found = [s for s, _ in sub_hits.most_common(5)]
+        if not reddit_items and subs_found:
+            for sub in subs_found[:1]:
+                for p in self._fetch_subreddit_posts(sub, limit=4):
+                    reddit_items.append({
+                        "kind": "reddit_post",
+                        "source": f"r/{p['subreddit']}",
+                        "title": p["title"],
+                        "quote": p["quote"],
+                        "url": p["url"],
+                        "date": p["date"],
+                    })
+
+        # --- Phase 3: assemble, strongest evidence first ---
+        evidence = (reddit_items + search_items)[:max_items]
+
+        # Stable, citable ids: e1, e2, ...
+        for i, item in enumerate(evidence, start=1):
+            item["id"] = f"e{i}"
+
+        n_threads = len([x for x in evidence if x["kind"] in ("reddit_thread", "reddit_post")])
+        n_search = len(evidence) - n_threads
+        print(f"  ✓ Evidence: {len(evidence)} items "
+              f"({n_search} search hits, {n_threads} reddit threads) "
+              f"from subreddits {subs_found}")
+
+        return {
+            "evidence": evidence,
+            "queries": queries,
+            "subreddits": subs_found,
+            "counts": {
+                "total": len(evidence),
+                "search": n_search,
+                "reddit_threads": n_threads,
+            },
+        }
 
     # Node 1: Industry & ICP Problem Formulator
     def run_icp_problem_mining(self, business_type: str, offering: str, target_customers: str) -> Dict[str, Any]:
