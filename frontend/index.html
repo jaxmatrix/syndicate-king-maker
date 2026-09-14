@@ -525,10 +525,6 @@
         <span class="material-symbols-outlined" style="font-size: 14px;">lock</span>
         Sign in with Google
       </button>
-      <button class="btn btn-gold" onclick="runResearchScan()">
-        <span class="material-symbols-outlined" style="font-size: 16px;">radar</span>
-        Run Syndicate Scan
-      </button>
     </div>
   </header>
 
@@ -538,12 +534,20 @@
     <!-- Left Column: Business Criteria & Range Ingest -->
     <aside class="left-panel">
       <div>
-        <div class="section-title">
-          <span class="material-symbols-outlined" style="color: var(--syndicate-gold); font-size: 18px;">tune</span>
-          Business Profile & Offering
+        <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+          <span style="display: inline-flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="color: var(--syndicate-gold); font-size: 18px;">tune</span>
+            Business Profile &amp; Offering
+          </span>
+          <button id="clear-profile-btn" class="btn btn-tonal" onclick="clearBusinessProfile()"
+                  title="Empty every field in this section"
+                  style="padding: 4px 10px; font-size: 0.68rem;">
+            <span class="material-symbols-outlined" style="font-size: 14px;">backspace</span>
+            Clear
+          </button>
         </div>
         <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
-          Configure your service and target client profile.
+          Configure your service and target client profile. Every field is required before a scan can run.
         </p>
       </div>
 
@@ -610,10 +614,13 @@
         </div>
       </div>
 
-      <button class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px; margin-top: auto;" onclick="runResearchScan()">
+      <button id="launch-btn" class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px; margin-top: auto;" onclick="runResearchScan()">
         <span class="material-symbols-outlined">rocket_launch</span>
         Launch Syndicate Engine
       </button>
+      <div id="launch-hint" style="font-size: 0.68rem; color: var(--text-muted); text-align: center; margin-top: 6px; line-height: 1.35;">
+        Complete every field above to enable a scan.
+      </div>
     </aside>
 
     <!-- Center Column: Global Interactive Map Surface -->
@@ -992,6 +999,8 @@
         document.getElementById('offering').value = p.offering;
         document.getElementById('sample_customers').value = p.customers;
       }
+      // Presets populate the profile, so the launch gate must be re-evaluated.
+      refreshLaunchState();
     }
 
     // 3. Map State & Drop-Pin Engine
@@ -1298,7 +1307,79 @@
       }
     }
 
+    // ---- Business profile: validation + clearing -----------------------------
+    // A scan runs real paid research, so it is gated on a complete profile. Every
+    // field must be filled by the user before the launch control will act.
+    const PROFILE_FIELDS = [
+      { id: 'company_name', label: 'Company Name' },
+      { id: 'business_type', label: 'Business / Industry Type' },
+      { id: 'offering', label: 'Core Offering & Value Proposition' },
+      { id: 'sample_customers', label: 'Target Customer Criteria / Anchor Accounts' },
+    ];
+
+    function missingProfileFields() {
+      return PROFILE_FIELDS.filter(f => {
+        const el = document.getElementById(f.id);
+        return !el || !String(el.value || '').trim();
+      }).map(f => f.label);
+    }
+
+    /** Reflect completeness on the launch control. Returns true when ready. */
+    function refreshLaunchState() {
+      const missing = missingProfileFields();
+      const ready = missing.length === 0;
+      const btn = document.getElementById('launch-btn');
+      const hint = document.getElementById('launch-hint');
+
+      if (btn) {
+        btn.disabled = !ready;
+        btn.style.opacity = ready ? '1' : '0.45';
+        btn.style.cursor = ready ? 'pointer' : 'not-allowed';
+        btn.title = ready ? 'Run the research scan' : 'Complete every field in the business profile first';
+      }
+      if (hint) {
+        hint.innerText = ready
+          ? 'All fields complete — ready to scan.'
+          : `Still required: ${missing.join(', ')}`;
+        hint.style.color = ready ? 'var(--syndicate-radar-cyan)' : 'var(--text-muted)';
+      }
+      return ready;
+    }
+
+    /** Empty every field in the business profile, and drop the active preset. */
+    function clearBusinessProfile() {
+      PROFILE_FIELDS.forEach(f => {
+        const el = document.getElementById(f.id);
+        if (el) el.value = '';
+      });
+      document.querySelectorAll('.preset-chips .chip').forEach(c => c.classList.remove('active'));
+      refreshLaunchState();
+      setActivity('Business profile cleared', false);
+      setPipelineStatus('IDLE — NO SCAN RUN', 'var(--text-muted)');
+    }
+
+    PROFILE_FIELDS.forEach(f => {
+      const el = document.getElementById(f.id);
+      if (el) el.addEventListener('input', refreshLaunchState);
+    });
+
+    // Establish the correct launch state on load (the sample input is prefilled,
+    // so a scan is available immediately; clearing the fields disables it).
+    refreshLaunchState();
+
     async function runResearchScan() {
+      // Gate: a scan is only valid with a complete profile. Checked here as well
+      // as on the control, so a programmatic call cannot bypass it.
+      const missing = missingProfileFields();
+      if (missing.length) {
+        refreshLaunchState();
+        setPipelineStatus('PROFILE INCOMPLETE', '#FF6B6B');
+        setActivity(`Scan blocked — missing ${missing.join(', ')}`, false);
+        addAgentChatMessage(
+          `A scan needs every business profile field. Still empty: ${missing.join(', ')}.`
+        );
+        return;
+      }
       if (!currentUser && !guestModeAllowed) {
         toggleAuthModal();
         return;
