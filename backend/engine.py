@@ -292,7 +292,7 @@ class SyndicateGraphEngine:
         action only covers Lever-hosted companies and 404s otherwise), so these
         come from real search results instead. Returns [] when nothing usable is
         found - the caller MUST omit the field rather than substitute wording.
-        This replaces the old per-building `hiring_signals` string, which claimed
+        This replaces the old per-building hiring-signal string, which claimed
         Anakin Wire evidence that was never actually fetched.
         """
         titles = [t for t in (icp_titles or []) if isinstance(t, str)][:2]

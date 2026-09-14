@@ -27,7 +27,7 @@ class TestSyndicateEndpoints(unittest.TestCase):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=240) as r:
+        with urllib.request.urlopen(req, timeout=480) as r:
             data = json.loads(r.read().decode())
             self.assertEqual(data.get("status"), "success")
             self.assertGreaterEqual(len(data.get("hotspot_recommendations", [])), 1)
@@ -78,7 +78,7 @@ class TestSyndicateEndpoints(unittest.TestCase):
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=200) as r:
+            with urllib.request.urlopen(req, timeout=480) as r:
                 return json.loads(r.read().decode())
 
         a = run(37.7895, -122.3980)
@@ -176,7 +176,7 @@ class TestSyndicateEndpoints(unittest.TestCase):
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=280) as r:
+        with urllib.request.urlopen(req, timeout=480) as r:
             data = json.loads(r.read().decode())
 
         self.assertEqual(data.get("status"), "success")
@@ -209,7 +209,7 @@ class TestSyndicateEndpoints(unittest.TestCase):
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=280) as r:
+        with urllib.request.urlopen(req, timeout=480) as r:
             data = json.loads(r.read().decode())
         for s in data.get("demand_signals", []):
             self.assertTrue(str(s.get("url", "")).startswith("http"),

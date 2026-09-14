@@ -115,3 +115,16 @@
   listing-specific source.
 - Deprecated aliases (`/api/simulate`, `/api/simulations`) are still live. Delete after one
   deploy cycle.
+- **Research runs are slow (~1–4 min).** The main cause is the Python Anakin client
+  (`/opt/data/anakin_client.py`): it spawns a fresh `npx @anakin-io/mcp` subprocess for
+  *every* tool call, and a run makes ~7 (3 searches + 4 thread scrapes). Reusing one
+  persistent MCP stdio process — as the Node bridge already does with `anakin_mcp.ts` —
+  is the obvious optimisation and would cut both latency and npx overhead.
+- **The queue never clears `pending` rows.** Completion is published as a new row
+  (`status: done:<id>`), not an update to the original, and the Helix `update`/`delete`
+  handlers are unavailable/broken. The worker therefore uses a freshness window
+  (`SYNDICATE_PENDING_MAX_AGE_S`, default 1800s) so a restart never re-runs the historical
+  backlog. A true fix needs an update route.
+- Duplicate concurrent workers remain possible (the watchdog revives one while a manual one
+  runs). Harmless for correctness — the client takes the newest successful row for its own
+  task id — but it doubles compute. Consider a lock.

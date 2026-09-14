@@ -14,6 +14,8 @@ import uuid
 import logging
 import urllib.request
 import urllib.error
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, '/opt/data')
 sys.path.insert(0, '/opt/data/syndicate/backend')
@@ -30,18 +32,45 @@ APP_HOST = "syndicate-app.jai.allr.work"
 # the legacy alias and still works, so this can be flipped back if ever needed.
 QUEUE_PATH = os.environ.get("SYNDICATE_QUEUE_PATH", "/api/research-runs")
 
+# How many research runs to execute at once. Runs are I/O-bound, so a small pool
+# keeps a backlog from serialising behind a single slow run.
+MAX_CONCURRENCY = int(os.environ.get("SYNDICATE_WORKER_CONCURRENCY", "3"))
+
+# Only claim pending rows newer than this. Completion is published as a NEW row
+# (status done:<id>) rather than updating the original, so the original stays
+# "pending" forever - without a freshness window every worker restart would
+# re-run the entire historical backlog.
+MAX_PENDING_AGE_S = int(os.environ.get("SYNDICATE_PENDING_MAX_AGE_S", "1800"))
+
 engine = SyndicateGraphEngine()
 processed_ids = set()
+
+def _is_fresh(row) -> bool:
+    """True when a pending row is recent enough to be worth running."""
+    raw = str(row.get("created_at") or "")
+    if not raw:
+        # No timestamp: only trust it if we have not seen the id before.
+        return False
+    try:
+        stamp = datetime.strptime(raw[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    return 0 <= age <= MAX_PENDING_AGE_S
+
 
 def fetch_pending_runs():
     url = f"{HELIX_URL}{QUEUE_PATH}"
     headers = {"Host": APP_HOST, "Accept": "application/json"}
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode())
             items = data if isinstance(data, list) else data.get("data", [])
-            return [it for it in items if it.get("status") == "pending" and it.get("id") not in processed_ids]
+            return [it for it in items
+                    if it.get("status") == "pending"
+                    and it.get("id") not in processed_ids
+                    and _is_fresh(it)]
     except Exception as e:
         logger.debug(f"Fetch error: {e}")
         return []
@@ -66,29 +95,39 @@ def complete_run(task_id, user_id, company_name, payload, result):
     except Exception as e:
         logger.error(f"Error publishing completed research run: {e}")
 
-def run_worker_loop():
-    logger.info(f"Starting Syndicate research worker loop (queue: {QUEUE_PATH})...")
-    while True:
-        try:
-            tasks = fetch_pending_runs()
-            for t in tasks:
-                task_id = t.get("id")
-                processed_ids.add(task_id)
-                logger.info(f"Processing research request {task_id} for {t.get('company_name')}")
-                try:
-                    payload = json.loads(t.get("payload", "{}"))
-                except Exception:
-                    payload = {}
+def process_task(t, task_id):
+    """Execute one queued research run and publish its result."""
+    logger.info(f"Processing research request {task_id} for {t.get('company_name')}")
+    try:
+        payload = json.loads(t.get("payload", "{}"))
+    except Exception:
+        payload = {}
 
-                # Execute the full research pipeline
-                try:
-                    res = engine.execute_research_run(payload)
-                    complete_run(task_id, t.get("user_id", "guest"), t.get("company_name", ""), payload, res)
-                except Exception as ex:
-                    logger.error(f"Error running research pipeline for {task_id}: {ex}")
-        except Exception as e:
-            logger.error(f"Worker loop exception: {e}")
-        time.sleep(1.0)
+    try:
+        res = engine.execute_research_run(payload)
+        complete_run(task_id, t.get("user_id", "guest"), t.get("company_name", ""), payload, res)
+    except Exception as ex:
+        logger.error(f"Error running research pipeline for {task_id}: {ex}")
+
+
+def run_worker_loop():
+    logger.info(f"Starting Syndicate research worker loop (queue: {QUEUE_PATH}, "
+                f"concurrency: {MAX_CONCURRENCY})...")
+    # A run is I/O-bound (Anakin search/scrape + LLM + Places), so a small thread
+    # pool materially improves throughput and stops a queue backlog from delaying
+    # later requests behind earlier ones. Persistence is a plain append, so
+    # concurrent publishes stay safe.
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as pool:
+        while True:
+            try:
+                tasks = fetch_pending_runs()
+                for t in tasks:
+                    task_id = t.get("id")
+                    processed_ids.add(task_id)
+                    pool.submit(process_task, t, task_id)
+            except Exception as e:
+                logger.error(f"Worker loop exception: {e}")
+            time.sleep(1.0)
 
 if __name__ == "__main__":
     run_worker_loop()
