@@ -17,6 +17,7 @@ from collections import Counter
 from typing import Dict, Any, List, Optional
 import sys
 sys.path.insert(0, '/opt/data')
+sys.path.insert(0, '/opt/data/syndicate/backend')
 from anakin_client import AnakinMCPClient
 
 
@@ -275,6 +276,33 @@ class SyndicateGraphEngine:
                 "reddit_threads": n_threads,
             },
         }
+
+    # ------------------------------------------------------------------
+    # N2: EVIDENCE-GROUNDED ICP EXTRACTION (real LLM reasoning)
+    # ------------------------------------------------------------------
+    def run_icp_extraction(self, evidence: List[Dict[str, Any]], company_name: str,
+                           business_type: str, offering: str,
+                           sample_customers: str) -> Dict[str, Any]:
+        """
+        Reason over the retrieved evidence to produce ICP intelligence.
+
+        The LLM sees only `evidence` and must cite it. Its output is validated by
+        validate_grounding() before it can reach the client.
+        """
+        try:
+            from intelligence import extract_icp
+        except Exception as e:
+            print(f"  ⚠ intelligence module unavailable: {e}")
+            return {"pain_points": [], "buying_triggers": [], "icp_titles": [],
+                    "online_spaces": [], "ok": False}
+
+        return extract_icp(
+            evidence=evidence,
+            company_name=company_name,
+            business_type=business_type,
+            offering=offering,
+            sample_customers=sample_customers,
+        )
 
     # Node 1: Industry & ICP Problem Formulator
     def run_icp_problem_mining(self, business_type: str, offering: str, target_customers: str) -> Dict[str, Any]:
