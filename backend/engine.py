@@ -379,14 +379,14 @@ class SyndicateGraphEngine:
         return clusters
 
     # Master Execution Pipeline
-    def execute_syndicate_simulation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_research_run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the full Syndicate intelligence pipeline for ONE anchor point.
+        Runs the full Syndicate research pipeline for ONE anchor point.
 
-        The anchor (lat/lng) is the only thing the user controls spatially. Every
-        result is derived from real Google Places data around that anchor, so
-        result pins are immutable geographic facts and never inherit the anchor's
-        position.
+        This is a research run, not a simulation: every returned fact is either
+        retrieved from a real source (Google Places, Anakin search, Reddit Wire
+        reads) or extracted from that retrieved evidence, and every claim carries
+        a citation. Nothing is invented.
         """
         company_name = payload.get("company_name", "Acme Enterprise")
         business_type = payload.get("business_type", "Corporate Services")
@@ -398,7 +398,7 @@ class SyndicateGraphEngine:
         raw_lng = payload.get("lng")
         if raw_lat is None or raw_lng is None:
             # No anchor => no scan. Never invent a location.
-            print("✗ Syndicate simulation rejected: no anchor coordinates supplied.")
+            print("✗ Research run rejected: no anchor coordinates supplied.")
             return {
                 "status": "error",
                 "error": "anchor_required",
@@ -421,7 +421,7 @@ class SyndicateGraphEngine:
         anchor = {"lat": float(raw_lat), "lng": float(raw_lng)}
         scan_radius = int(payload.get("radius_meters") or 1500)
 
-        print(f"🚀 Syndicate run: {company_name} | {business_type} @ {anchor['lat']},{anchor['lng']} r={scan_radius}m")
+        print(f"🚀 Research run: {company_name} | {business_type} @ {anchor['lat']},{anchor['lng']} r={scan_radius}m")
 
         # Step 1: ICP & Sector Pain Mining (Reddit & Web via Anakin)
         icp_insights = self.run_icp_problem_mining(business_type, offering, sample_customers)
@@ -526,6 +526,11 @@ class SyndicateGraphEngine:
         }
 
 
+    # DEPRECATED: the old name is kept as an alias so any in-flight caller keeps
+    # working. Remove once every call site has moved to execute_research_run.
+    execute_syndicate_simulation = execute_research_run
+
+
 if __name__ == "__main__":
     engine = SyndicateGraphEngine()
     # Anchor is mandatory now: the engine will refuse to run without one.
@@ -539,8 +544,8 @@ if __name__ == "__main__":
         "lng": -122.3980,
         "radius_meters": 1500
     }
-    res = engine.execute_syndicate_simulation(test_payload)
-    print("Simulation completed successfully!")
+    res = engine.execute_research_run(test_payload)
+    print("Research run completed successfully!")
     print(f"Anchor: {res.get('anchor')} r={res.get('anchor_radius_meters')}m")
     print(f"Target buildings found: {len(res['target_buildings'])}")
     print(f"Offline touchpoints found: {len(res['offline_touchpoints'])}")

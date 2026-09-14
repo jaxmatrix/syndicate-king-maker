@@ -1,6 +1,6 @@
 """
 FastAPI Server for Syndicate: The King Maker
-Exposes REST endpoints for simulation runs, map data, and analytics.
+Exposes REST endpoints for research runs, map data, and analytics.
 """
 
 import os
@@ -34,7 +34,7 @@ engine = SyndicateGraphEngine()
 app.mount("/app", StaticFiles(directory="/opt/data/syndicate/frontend", html=True), name="frontend")
 
 
-class SimulationRequest(BaseModel):
+class ResearchRequest(BaseModel):
     company_name: str
     business_type: str
     offering: str
@@ -44,6 +44,9 @@ class SimulationRequest(BaseModel):
     lng: Optional[float] = None
     radius_meters: Optional[int] = 1500
     user_id: Optional[str] = "guest"
+
+# DEPRECATED: old model name kept as an alias.
+SimulationRequest = ResearchRequest
 
 class ChatRequest(BaseModel):
     message: str
@@ -98,7 +101,7 @@ def chat_agent(req: ChatRequest):
 def health():
     return {
         "status": "online",
-        "service": "Syndicate King Maker Intelligence Engine",
+        "service": "Syndicate King Maker Research Engine",
         "gmaps_active": bool(os.environ.get("GOOGLE_MAPS_API_KEY")),
         "anakin_active": True
     }
@@ -109,11 +112,19 @@ def get_config():
         "google_maps_key": os.environ.get("GOOGLE_MAPS_API_KEY", "")
     }
 
-@app.post("/api/simulate")
-def run_simulation(req: SimulationRequest):
+@app.post("/api/research")
+def run_research(req: ResearchRequest):
+    """Run the full research pipeline for one anchor point."""
     try:
-        result = engine.execute_syndicate_simulation(req.dict())
-        return result
+        return engine.execute_research_run(req.dict())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/simulate", deprecated=True)
+def run_research_legacy(req: ResearchRequest):
+    """DEPRECATED alias for /api/research. Kept so older clients keep working."""
+    try:
+        return engine.execute_research_run(req.dict())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

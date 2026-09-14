@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Syndicate Background Queue Worker Daemon.
-Polls Helix /api/simulations on syndicate-app.jai.allr.work for pending requests,
-executes the full SyndicateGraphEngine (Anakin Wire, Google Places, Hotspots),
-and updates the record with the completed result payload.
+Syndicate Background Research Worker Daemon.
+Polls the Helix research-run queue for pending requests, executes the full
+SyndicateGraphEngine research pipeline (Anakin search + Reddit Wire reads +
+Google Places + centroid hotspots), and publishes the completed result.
 """
 
 import os
@@ -26,11 +26,15 @@ logger = logging.getLogger("syndicate_worker")
 HELIX_URL = os.environ.get("HELIX_GATEWAY_URL", "http://helix:8080").rstrip("/")
 APP_HOST = "syndicate-app.jai.allr.work"
 
+# The queue endpoint. /api/research-runs is the current name; /api/simulations is
+# the legacy alias and still works, so this can be flipped back if ever needed.
+QUEUE_PATH = os.environ.get("SYNDICATE_QUEUE_PATH", "/api/research-runs")
+
 engine = SyndicateGraphEngine()
 processed_ids = set()
 
-def fetch_pending_simulations():
-    url = f"{HELIX_URL}/api/simulations"
+def fetch_pending_runs():
+    url = f"{HELIX_URL}{QUEUE_PATH}"
     headers = {"Host": APP_HOST, "Accept": "application/json"}
     req = urllib.request.Request(url, headers=headers)
     try:
@@ -42,9 +46,9 @@ def fetch_pending_simulations():
         logger.debug(f"Fetch error: {e}")
         return []
 
-def complete_simulation(task_id, user_id, company_name, payload, result):
+def complete_run(task_id, user_id, company_name, payload, result):
     # In Helix API, we post a completed record or update
-    url = f"{HELIX_URL}/api/simulations"
+    url = f"{HELIX_URL}{QUEUE_PATH}"
     headers = {"Host": APP_HOST, "Content-Type": "application/json"}
     update_data = {
         "id": str(uuid.uuid4()),
@@ -60,28 +64,28 @@ def complete_simulation(task_id, user_id, company_name, payload, result):
         urllib.request.urlopen(post_req, timeout=5)
         logger.info(f"Published completed result for task {task_id}")
     except Exception as e:
-        logger.error(f"Error publishing completed simulation: {e}")
+        logger.error(f"Error publishing completed research run: {e}")
 
 def run_worker_loop():
-    logger.info("Starting Syndicate Worker loop...")
+    logger.info(f"Starting Syndicate research worker loop (queue: {QUEUE_PATH})...")
     while True:
         try:
-            tasks = fetch_pending_simulations()
+            tasks = fetch_pending_runs()
             for t in tasks:
                 task_id = t.get("id")
                 processed_ids.add(task_id)
-                logger.info(f"Processing simulation request {task_id} for {t.get('company_name')}")
+                logger.info(f"Processing research request {task_id} for {t.get('company_name')}")
                 try:
                     payload = json.loads(t.get("payload", "{}"))
                 except Exception:
                     payload = {}
-                
-                # Execute full simulation
+
+                # Execute the full research pipeline
                 try:
-                    res = engine.execute_syndicate_simulation(payload)
-                    complete_simulation(task_id, t.get("user_id", "guest"), t.get("company_name", ""), payload, res)
+                    res = engine.execute_research_run(payload)
+                    complete_run(task_id, t.get("user_id", "guest"), t.get("company_name", ""), payload, res)
                 except Exception as ex:
-                    logger.error(f"Error running simulation for {task_id}: {ex}")
+                    logger.error(f"Error running research pipeline for {task_id}: {ex}")
         except Exception as e:
             logger.error(f"Worker loop exception: {e}")
         time.sleep(1.0)
