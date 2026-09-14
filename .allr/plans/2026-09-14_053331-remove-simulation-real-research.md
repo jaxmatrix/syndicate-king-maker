@@ -283,6 +283,34 @@ CLAUDE.md, PLAN.md       docs
 - **Open question:** whether to keep the deprecated aliases permanently or delete them after one
   deploy cycle. Plan assumes delete later; harmless to keep.
 
+## Addendum (added mid-execution, 2026-09-14)
+
+**New requirement:** make the Mastra agent live, with the Anakin MCP and Google Maps API bound as
+tools, so the user can converse with it and have it research further / find customers after the
+first scan.
+
+Discovery: the Mastra agent was non-functional — no dependencies installed, and all four of its
+tools returned hardcoded fake data (buildings at `lat + 0.002`, invented pain signals, `r/bayarea`
+stub subreddits). Same anti-pattern already removed from the Python engine, so the same rule
+applies: delete the fabrication, bind the real thing.
+
+Implemented as Tasks 11–14 (each committed):
+
+- **Task 11** — real tool implementations: `anakin_mcp.ts` (native MCP client over stdio),
+  `tools_anakin.ts`, `google_maps.ts`, `tools_maps.ts`, `env.ts`.
+- **Task 12** — `agent.ts` rebuilt on DeepSeek v4.1 flash with hard no-invention instructions.
+- **Task 13** — go live: `chat_messages` Helix table + `/api/chat` routes, `chat_bridge.ts`
+  queue consumer, frontend chat routed through it, watchdog auto-revival.
+- **Task 14** — verification: `agent_test.ts`, `tools_test.ts`, `verify_live_chat.py`,
+  plus suite tests 08–11.
+
+Pitfalls recorded for future work: undici `fetch()` drops the `Host` header (use `node:http`);
+the MCP SDK's `callTool()` validates against each tool's `outputSchema` and Anakin's `search`
+violates it (use the low-level request + `CallToolResultSchema`); `openrouter(...)` defaults to
+`/responses` while `openrouter.chat(...)` pins chat-completions; `ANAKIN_API_KEY` was absent from
+the shared `.env`; and `import './env.js'` must come first because ESM hoisting ran dotenv after
+the agent had already read the keys.
+
 ## Definition of Done
 
 - `grep -rIi "simulation" backend/ frontend/ test_suite.py` returns nothing user-visible.

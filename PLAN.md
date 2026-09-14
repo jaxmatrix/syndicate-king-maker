@@ -13,27 +13,42 @@
 │   LEFT PANEL (380px)     │       CENTER MAP CANVAS       │    RIGHT SIDEBAR (420px)    │
 │  Business Profile & ICP  │  Global Tactical Dark Engine  │   Live Agent Execution Log  │
 │                          │                               │              &              │
-│  • Company & Offering    │  • Global Pin Drop Tool       │ Interactive Agent Chat Room │
-│  • Preset Archetypes     │  • Dynamic Radius Controller  │                             │
-│  • B2B Deal Constraints  │    (500m to 15,000m range)    │  • Real-time SSE / Log Feed │
-│  • Firebase Auth Status  │  • Tactical Building Pins     │  • Multi-turn User Chat     │
-│  • Run Scan Trigger      │  • Offline Touchpoint Pins    │  • Mastra Agent Insights    │
-│                          │  • Voronoi Hotspot Catchment  │  • Actionable Strategic ROI │
+│  • Company & Offering    │  • Global Pin Drop Tool       │  • Queued (no SSE needed)   │
+│  • Preset Archetypes     │  • Dynamic Radius Controller  │  • Multi-turn User Chat     │
+│  • B2B Deal Constraints  │    (500m to 8,000m range)     │  • Live Mastra Agent         │
+│  • Firebase Auth Status  │  • Anchored Building Pins     │  • Cited Evidence Panel     │
+│  • Run Research Trigger  │  • Offline Touchpoint Pins    │  • Grounding Report          │
+│                          │  • Centroid Hotspot Rings     │                             │
 └──────────────────────────┴───────────────────────────────┴─────────────────────────────┘
                                            │
-                                           │ REST / SSE
+                                           │ REST + queue polling
                                            ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                   MASTRA AGENT & INTELLIGENCE RUNTIME LAYER                            │
+│                   MASTRA AGENT & INTELLIGENCE RUNTIME LAYER  (LIVE)                    │
 │                                                                                        │
-│  Mastra King Maker Agent: `syndicate-king-maker`                                       │
-│  • System Prompt: Specialized Commercial Site Selection, Urban Footfall & GTM Physics  │
-│  • Tools Bound:                                                                        │
-│    1. `anakinWireTool`: Sector pain & community complaint extraction (Reddit/Trustpilot)│
-│    2. `googlePlacesScanner`: Corporate tower, business park & headcount discovery       │
-│    3. `offlineTouchpointSimulator`: 350m–600m radius executive lunch/cafe simulation   │
-│    4. `hotspotOptimizer`: Spatial density scoring, daily flow & monthly ICP reach       │
-│  • Multi-Turn Conversational Reasoning: Explains why hotspots were selected & refines  │
+│  Mastra King Maker Agent: `syndicate-king-maker`  (DeepSeek v4.1 flash via OpenRouter)  │
+│  • System prompt: commercial site selection + spatial GTM research                     │
+│  • Tools bound (ALL REAL CALLS - no synthesised data):                                 │
+│    1. `anakin-search`        Anakin MCP search (web + Reddit), returns urls             │
+│    2. `anakin-reddit-posts`  Anakin MCP reddit wire read, real posts + permalinks       │
+│    3. `anakin-scrape`        Anakin MCP scrape, reads a source in full                  │
+│    4. `google-places-nearby` Places Nearby, haversine-filtered to the radius            │
+│    5. `google-geocode`       Geocoding API, name/address -> real coordinates            │
+│  • Reached from the browser via `chat_bridge.ts` + the Helix /api/chat queue,           │
+│    because a hosted browser cannot reach a localhost port.                              │
+│  • Multi-turn: researches further on request and finds new customers after a scan       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│              RESEARCH ENGINE (backend/engine.py) - evidence-bound, cited               │
+│                                                                                        │
+│  N1 collect_evidence()        Anakin search -> harvest subreddits -> scrape threads     │
+│  N2 run_icp_extraction()      DeepSeek v4.1 over evidence[] ONLY, one citation/claim    │
+│  N3 collect_demand_signals()  real hiring/expansion signals; [] when none found         │
+│  N4 find_target_buildings()   Places Nearby + haversine; exact place coordinates        │
+│  N5 find_touchpoints_...()    Places Nearby around the top sites                        │
+│  N6 calculate_hotspot_...()   centroids of REAL member coordinates                      │
+│  N7 validate_grounding()      drops any claim not traceable to retrieved evidence       │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,16 +62,20 @@
 - **Dynamic Radius Controller**: An interactive slider (500m to 15,000m) with a live glowing catchment boundary on the map.
 
 ### Surface 2: Live Right Sidebar (Agent Telemetry + Chat Console)
-- **Tab A: Live Agent Telemetry**:
-  - Step 1: Ingesting business parameters and deal profile.
-  - Step 2: Querying Anakin Wire for sector pain points and common vendor failures.
-  - Step 3: Scanning Google Places within the target radius for corporate towers and office parks.
-  - Step 4: Simulating offline touchpoints (executive coffee, business dining, transit hubs).
-  - Step 5: Clustering hotspots and generating strategic outlet recommendations.
+- **Tab A: Live Agent Telemetry** (real nodes, real counts):
+  - Step 1: Ingest business parameters and deal profile.
+  - Step 2: Retrieve citable evidence (Anakin search + scraped Reddit threads).
+  - Step 2b: Grounded extraction of ICP pain points, triggers and online spaces.
+  - Step 2c: Real hiring/expansion demand signals (omitted when none are found).
+  - Step 3: Scan Google Places within the radius for real sites.
+  - Step 4: Map offline touchpoints (executive coffee, business dining, transit).
+  - Step 5: Cluster hotspots as centroids of real member coordinates.
+  - Sources: the evidence list with clickable urls, plus a grounding report.
 - **Tab B: Interactive Agent Chat Room**:
-  - Powered by the Mastra King Maker Agent.
-  - The user can ask questions: *"Why pick SOMA over FiDi?"*, *"What if we focus on deals over $50k?"*, *"Suggest 3 street corners for a flagship pop-up"*.
-  - The agent responds with cited data from the simulation and dynamically updates map filters.
+  - Powered by the LIVE Mastra King Maker Agent (real Anakin MCP + Google Maps tools).
+  - The user can ask it to research further: *"Find coworking spaces near 555 California"*,
+    *"Who else in this radius could buy from us?"*, *"Which source contradicts this claim?"*.
+  - The agent performs real tool calls and reports the urls and coordinates it actually found.
 
 ### Surface 3: Mastra Agent Framework
 - Configured with typed tool schemas and a tailored system persona:
@@ -67,8 +86,32 @@
 
 ## 3. Milestones & Implementation Checklist
 
-- [ ] **Milestone 1**: Set up project workspace with Mastra agent files and blueprint reference.
-- [ ] **Milestone 2**: Implement Mastra King Maker Agent (`agent.ts`, tools, and chat loop).
-- [ ] **Milestone 3**: Implement 3-column UI with Global Pin Drop, Dynamic Radius Slider, and Right Sidebar (Live Log + Chat).
-- [ ] **Milestone 4**: Wire the backend API with the Mastra agent and live simulation streaming.
-- [ ] **Milestone 5**: Package, test, and deploy to Helix (`https://syndicate-app.jai.allr.work`).
+- [x] **Milestone 1**: Project workspace + blueprint reference.
+- [x] **Milestone 2**: Mastra King Maker Agent — LIVE, with real Anakin MCP + Google Maps tools.
+- [x] **Milestone 3**: 3-column UI with global pin drop, radius slider, telemetry + chat.
+- [x] **Milestone 4**: Backend wired through the Helix queue (research runs + agent chat);
+      no simulation, no fabricated data, every claim cited.
+- [x] **Milestone 5**: Tested (11-test suite + 4 verification scripts) and deployed to Helix
+      (`https://syndicate-app.jai.allr.work`).
+
+## 4. Standing Invariants (do not regress)
+
+1. **No invented data.** Every claim traces to a retrieved source; `validate_grounding()`
+   enforces it and `N3` omits rather than estimates.
+2. **No pre-baked results.** Nothing renders until the operator runs a scan, and there is no
+   client-side result generator.
+3. **Anchored pins.** Result coordinates come from Google Places and never inherit the
+   dropped pin's position.
+4. **Real tool calls only.** If a tool call fails, the UI says so rather than substituting
+   plausible wording.
+
+## 5. Open Items
+
+- The Helix `delete` handler 500s (`ERR_INVALID_ARG_TYPE`), so historical queue rows cannot
+  be purged from the app. The client only ever renders rows matching its own task id, so this
+  is cosmetic; a platform fix is needed for a true purge.
+- Demand-signal quality varies: some hits are career/listing pages rather than specific
+  postings. They are real and URL-backed, but precision could improve with a
+  listing-specific source.
+- Deprecated aliases (`/api/simulate`, `/api/simulations`) are still live. Delete after one
+  deploy cycle.

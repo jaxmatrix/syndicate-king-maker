@@ -1,39 +1,25 @@
-feat(mastra): make the research agent LIVE with real Anakin MCP + Google Maps tools
+docs+test: real research pipeline, live agent, and regression coverage
 
-The Mastra agent was non-functional: nothing was installed, and all four of its
-"tools" returned hardcoded fake data (buildings at lat + 0.002, invented pain
-signals, stub subreddits like r/bayarea). That fabrication is deleted.
+Task 9 - test_suite.py (11 tests) gains:
+- test_08_no_hardcoded_research: fails if any of the nine banned hardcoded
+  artefacts reappears, and asserts the real research nodes exist.
+- test_09_evidence_grounding: every returned claim must cite an evidence_id
+  present in `sources`, must carry a quote, and claims_dropped must be 0.
+- test_10_demand_signals_carry_urls: no signal may exist without a real url.
+- test_11_live_agent_chat: posts to the chat queue and requires a reply that
+  made at least one real tool call.
+Also migrated the remaining /api/simulate call sites to /api/research and raised
+timeouts, which were sized for the old instant path and are far too short now
+that a run does real retrieval plus an LLM call.
 
-Tools are now real calls:
-- anakin_mcp.ts    native MCP client over stdio to @anakin-io/mcp (verified: the
-                   server exposes 21 tools; search and the reddit action return
-                   real data).
-- tools_anakin.ts  anakin-search, anakin-reddit-posts, anakin-scrape.
-- google_maps.ts   real Places Nearby (haversine-filtered to the radius) + Geocoding.
-- tools_maps.ts    google-places-nearby, google-geocode.
-- agent.ts         DeepSeek v4.1 flash via OpenRouter, with hard instructions to
-                   never invent facts and to cite a source url per claim.
-- env.ts           loads the shared .env at import time, because ESM hoisting
-                   meant dotenv ran AFTER the agent had already read the keys.
-
-Making it live: the deployed browser cannot reach a localhost port, so
-chat_bridge.ts polls a new Helix /api/chat queue, runs the agent, and writes the
-reply back - the same pattern the research runs use. Added to workspace_watchdog
-for auto-revival.
-
-Pitfalls found and fixed:
-- undici's fetch() silently drops the Host header (forbidden header name), so
-  every Helix request 404'd. The bridge uses node:http, which permits Host.
-- The MCP SDK's client.callTool() validates responses against each tool's
-  outputSchema, and Anakin's search returns extra properties, so it failed with
-  "must NOT have additional properties". Using the low-level request with
-  CallToolResultSchema bypasses that.
-- openrouter(...) defaults to the /responses endpoint; openrouter.chat(...) pins
-  chat-completions, which actually serves this model.
-- ANAKIN_API_KEY was missing from the shared .env (only hardcoded in the Python
-  client), so the MCP refused to start.
-
-Verified live: the agent chained 5 real tool calls (geocode -> 2 Places scans ->
-2 Anakin searches) and returned 15 real San Francisco coworking spaces with
-genuine coordinates, addresses and ratings, self-correcting when one keyword
-missed the nearest result.
+Task 10 - docs brought back in line with reality:
+- CLAUDE.md: documents the N1-N7 research pipeline, why fabrication is
+  structurally impossible, the DeepSeek model choice and its reasoning-token
+  trap, the live Mastra agent and its five real tools, the updated API surface
+  and Helix routes, and the verification commands.
+- PLAN.md: the Mastra layer no longer claims fabricated tools; the engine
+  nodes, the invariants, and the open items are stated; milestones are ticked
+  against what was actually verified.
+- Added the Mastra addendum to the plan doc, recording the four real pitfalls
+  found (Host header dropped by fetch, MCP outputSchema validation, the
+  /responses vs chat-completions default, and ESM hoisting vs dotenv).

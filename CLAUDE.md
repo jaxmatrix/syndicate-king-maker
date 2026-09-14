@@ -19,23 +19,36 @@ Live deployments:
 /opt/data/syndicate/
 ├── PLAN.md              # Architecture & execution blueprint (Milestones 1-5)
 ├── CLAUDE.md            # This file — project rules for AI agents
-├── test_suite.py        # Python unittest suite (4 tests, all passing)
-├── backend/             # FastAPI + Graph AI engine (Python 3.13)
-│   ├── engine.py        # SyndicateGraphEngine: Anakin Wire + Google Places + Voronoi clustering
-│   ├── server.py        # FastAPI app on :8090 (/api/health, /api/simulate, /api/chat, /api/config)
-│   └── worker.py        # Helix queue daemon: polls /api/simulations, runs engine, writes results
+├── test_suite.py        # Python unittest suite (11 tests)
+├── verify_anchoring.py  # proof: result pins never move with the anchor
+├── verify_e2e.py        # proof: full queue round-trip
+├── verify_research.py   # proof: cited claims, no hardcoded wording
+├── verify_live_chat.py  # proof: live Mastra agent answers with real tool calls
+├── helix_*.json         # Helix ops plans (routes, chat table)
+├── backend/             # FastAPI + research engine (Python 3.13)
+│   ├── engine.py        # SyndicateGraphEngine: research nodes N1-N7
+│   ├── intelligence.py  # DeepSeek v4.1 evidence-grounded ICP extraction
+│   ├── server.py        # FastAPI on :8090 (/api/research, /api/chat, /api/health, /api/config)
+│   └── worker.py        # Helix queue daemon: polls /api/research-runs, runs engine
 ├── frontend/            # Single-file SPA (index.html) — deployable to Helix as static zip
-│   └── index.html       # 3-column command center, Firebase auth, Google Maps JS + Leaflet fallback
-└── mastra/              # Mastra TypeScript agent definitions
-    ├── agent.ts         # syndicateKingMakerAgent + 4 typed tools (createTool/zod)
+│   └── index.html       # 3-column command center, Firebase auth, Google Maps JS
+└── mastra/              # LIVE research agent (TypeScript, run with tsx)
+    ├── env.ts           # loads the shared .env — import FIRST (ESM hoisting)
+    ├── anakin_mcp.ts    # native MCP client over stdio to @anakin-io/mcp
+    ├── tools_anakin.ts  # anakin-search / anakin-reddit-posts / anakin-scrape
+    ├── google_maps.ts   # Places Nearby (haversine) + Geocoding
+    ├── tools_maps.ts    # google-places-nearby / google-geocode
+    ├── agent.ts         # syndicateKingMakerAgent (DeepSeek v4.1 via OpenRouter)
     ├── index.ts         # Mastra instance registration
-    └── package.json     # `npm run test` → runs ../test_suite.py
+    ├── chat_bridge.ts   # polls Helix /api/chat, runs the agent, writes replies
+    ├── agent_test.ts    # proves the agent makes real tool calls
+    └── tools_test.ts    # proves the MCP + Maps tools return real data
 ```
 
 ## Key Commands
 
 ```bash
-# Run full verification suite (backend health, global sim, chat, live Helix frontend)
+# Run full verification suite (11 tests: anchoring, research, live agent)
 npm --prefix /opt/data/syndicate/mastra run test
 
 # Start backend (background)
@@ -44,12 +57,18 @@ npm --prefix /opt/data/syndicate/mastra run test
 # Start Helix queue worker (background)
 /opt/hermes/.venv/bin/python3 /opt/data/syndicate/backend/worker.py
 
+# Start the LIVE Mastra agent chat bridge (background)
+cd /opt/data/syndicate/mastra && npx tsx chat_bridge.ts
+
+# Prove the Mastra agent + its tools work (real calls)
+cd /opt/data/syndicate/mastra && npx tsx tools_test.ts && npx tsx agent_test.ts
+
 # Deploy frontend to Helix (zip contents, then update app)
 python3 /opt/allr/skills/helix/scripts/helix_client.py zip /opt/data/syndicate/frontend /tmp/syndicate_app.zip
 python3 /opt/allr/skills/helix/scripts/helix_client.py update cf126906-b884-47b3-a1d8-aec3b9d44dd3 /tmp/syndicate_app.zip "vN-message"
 
-# Direct Anakin MCP client helper (used by engine.py; lives at /opt/data/anakin_client.py)
-python3 /opt/data/anakin_client.py
+# Apply Helix resource changes (routes / tables) from a plan file
+python3 /opt/allr/skills/helix/scripts/helix_client.py ops /opt/data/syndicate/helix_chat_table.json
 ```
 
 ## Architecture Invariants
@@ -101,7 +120,7 @@ python3 /opt/data/anakin_client.py
 ## Verification
 
 ```bash
-# Project suite (7 tests) — needs backend + worker running
+# Project suite (11 tests) — needs backend + worker + chat bridge running
 npm --prefix /opt/data/syndicate/mastra run test
 
 # Anchoring proof: shared pins must not move when the anchor moves
@@ -109,7 +128,58 @@ npm --prefix /opt/data/syndicate/mastra run test
 
 # End-to-end proof through the real Helix queue path
 /opt/hermes/.venv/bin/python3 /opt/data/syndicate/verify_e2e.py
+
+# Research-pipeline proof: cited claims, no hardcoded wording, real sources
+/opt/hermes/.venv/bin/python3 /opt/data/syndicate/verify_research.py
+
+# Live Mastra agent: real tool calls through the chat queue
+/opt/hermes/.venv/bin/python3 /opt/data/syndicate/verify_live_chat.py
+cd /opt/data/syndicate/mastra && npx tsx agent_test.ts && npx tsx tools_test.ts
 ```
+
+## The Research Pipeline (real, evidence-bound)
+
+There is no simulator. `execute_research_run()` runs six research nodes plus a validator:
+
+```
+N1 collect_evidence()          Anakin search -> subreddits -> scrape the Reddit threads
+                               found, into evidence[] = {id,kind,source,quote,url,date}
+N2 run_icp_extraction()        DeepSeek v4.1 flash reasons over evidence[] ONLY;
+  (backend/intelligence.py)    returns pain_points/buying_triggers/icp_titles/online_spaces
+N3 collect_demand_signals()    real hiring/expansion signals, each with a url;
+                               returns [] when nothing real is found (field is then omitted)
+N4 find_target_buildings()     Places Nearby + haversine radius, exact place coordinates
+N5 find_touchpoints_for_building()  Places Nearby around the top sites
+N6 calculate_hotspot_clusters()     centroids of real member coordinates
+N7 validate_grounding()        drops any claim whose evidence_id is absent, any online
+                               space not present in the evidence, any signal without a url
+```
+
+**Why fabrication is structurally impossible:** N7 re-checks every generated claim against
+the retrieved evidence set and discards anything uncited, and N3 omits rather than fills.
+The result payload carries `sources` (the evidence) and a `grounding` summary.
+
+**Model choice:** `deepseek/deepseek-v4.1-flash` via OpenRouter. Do NOT switch to
+`google/gemini-3.7-flash`: it is a reasoning model that returns `content: null` with the
+budget spent on reasoning tokens, which breaks JSON extraction. Note that
+deepseek-v4.1-flash ALSO spends reasoning tokens (observed 776–1471), so `max_tokens`
+must cover reasoning + content combined or content comes back truncated.
+
+## The Live Mastra Agent
+
+`mastra/` is a real, running agent — not a stub. It exposes real tools:
+
+| Tool | Implementation |
+|---|---|
+| `anakin-search` | Anakin MCP `search` over stdio (`anakin_mcp.ts`) |
+| `anakin-reddit-posts` | Anakin MCP `wire_read_action` (`rt_subreddit_posts`) |
+| `anakin-scrape` | Anakin MCP `scrape` |
+| `google-places-nearby` | Places Nearby, haversine-filtered |
+| `google-geocode` | Geocoding API |
+
+`chat_bridge.ts` polls the Helix `/api/chat` queue, runs the agent, and writes the reply
+back — the browser cannot reach a localhost port. Registered in `workspace_watchdog.py`
+(`check_mastra_chat_bridge`) for auto-revival.
 
 ## API Surface (backend/server.py)
 
@@ -117,8 +187,12 @@ npm --prefix /opt/data/syndicate/mastra run test
 |---|---|---|
 | `/api/health` | GET | Status: `{status, gmaps_active, anakin_active}` |
 | `/api/config` | GET | Returns `{google_maps_key}` from env |
-| `/api/simulate` | POST | Full 5-node graph simulation. Body: company_name, business_type, offering, target_city, sample_customers, lat, lng, radius_meters, user_id |
+| `/api/research` | POST | Full research run. Body: company_name, business_type, offering, target_city, sample_customers, lat, lng, radius_meters, user_id |
+| `/api/simulate` | POST | DEPRECATED alias for `/api/research` |
 | `/api/chat` | POST | Mastra agent multi-turn reasoning. Body: {message, context, user_id} |
+
+Helix routes (same table, `/api/research-runs` is current, `/api/simulations` is a live alias):
+`GET|POST /api/research-runs` → `simulations` table; `GET|POST /api/chat` → `chat_messages` table.
 
 ## Environment & Credentials
 
