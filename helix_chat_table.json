@@ -1,0 +1,61 @@
+{
+  "rationale": "Extend the EXISTING database resource with a chat_messages table (Helix allows only one database per app) and add /api/chat routes to the existing api resource, so the deployed browser can reach the live Mastra agent through the same queue pattern the research runs use. update_resource replaces configuration wholesale, so the existing simulations table spec is restated unchanged.",
+  "operations": [
+    {
+      "op": "update_resource",
+      "applicationId": "cf126906-b884-47b3-a1d8-aec3b9d44dd3",
+      "resourceId": "477c3445-410b-4ad8-9547-9d7973c0fc46",
+      "patch": {
+        "name": "syndicate_db",
+        "configuration": {
+          "tables": [
+            {
+              "name": "simulations",
+              "columns": [
+                { "name": "id", "type": "uuid", "primaryKey": true, "nullable": false },
+                { "name": "user_id", "type": "string", "nullable": false },
+                { "name": "company_name", "type": "string", "nullable": false },
+                { "name": "payload", "type": "text", "nullable": false },
+                { "name": "result", "type": "text", "nullable": true },
+                { "name": "status", "type": "string", "nullable": false },
+                { "name": "created_at", "type": "timestamp", "nullable": true }
+              ]
+            },
+            {
+              "name": "chat_messages",
+              "columns": [
+                { "name": "id", "type": "uuid", "primaryKey": true, "nullable": false },
+                { "name": "user_id", "type": "string", "nullable": false },
+                { "name": "message", "type": "text", "nullable": false },
+                { "name": "context", "type": "text", "nullable": true },
+                { "name": "reply", "type": "text", "nullable": true },
+                { "name": "tool_calls", "type": "text", "nullable": true },
+                { "name": "status", "type": "string", "nullable": false },
+                { "name": "created_at", "type": "timestamp", "nullable": true }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "update_resource",
+      "applicationId": "cf126906-b884-47b3-a1d8-aec3b9d44dd3",
+      "resourceId": "37fdaae0-6b5c-4479-a322-d71c4ed18840",
+      "patch": {
+        "name": "syndicate_api",
+        "configuration": {
+          "basePath": "/api",
+          "routes": [
+            { "method": "GET",  "path": "/research-runs", "handler": "list",   "table": "simulations",   "auth": false },
+            { "method": "POST", "path": "/research-runs", "handler": "create", "table": "simulations",   "auth": false },
+            { "method": "GET",  "path": "/simulations",   "handler": "list",   "table": "simulations",   "auth": false },
+            { "method": "POST", "path": "/simulations",   "handler": "create", "table": "simulations",   "auth": false },
+            { "method": "GET",  "path": "/chat",          "handler": "list",   "table": "chat_messages", "auth": false },
+            { "method": "POST", "path": "/chat",          "handler": "create", "table": "chat_messages", "auth": false }
+          ]
+        }
+      }
+    }
+  ]
+}

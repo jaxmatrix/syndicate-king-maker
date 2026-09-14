@@ -22,6 +22,15 @@ build/
 # Node
 node_modules/
 npm-debug.log*
+# package-lock.json IS committed (reproducible installs for the deployed bridge)
+
+# Mastra
+mastra/node_modules/
+mastra/chat_bridge.log
+
+# Secrets / local env
+.env
+.env.*
 
 # OS / editor
 .DS_Store

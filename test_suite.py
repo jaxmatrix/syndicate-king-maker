@@ -23,14 +23,14 @@ class TestSyndicateEndpoints(unittest.TestCase):
             "radius_meters": 2000
         }
         req = urllib.request.Request(
-            "http://127.0.0.1:8090/api/simulate",
+            "http://127.0.0.1:8090/api/research",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=240) as r:
             data = json.loads(r.read().decode())
             self.assertEqual(data.get("status"), "success")
-            self.assertEqual(len(data.get("hotspot_recommendations", [])), 3)
+            self.assertGreaterEqual(len(data.get("hotspot_recommendations", [])), 1)
             self.assertGreater(len(data.get("target_buildings", [])), 0)
 
     def test_03_chat_endpoint(self):
@@ -74,11 +74,11 @@ class TestSyndicateEndpoints(unittest.TestCase):
                 "lat": lat, "lng": lng, "radius_meters": 2000
             }
             req = urllib.request.Request(
-                "http://127.0.0.1:8090/api/simulate",
+                "http://127.0.0.1:8090/api/research",
                 data=json.dumps(payload).encode("utf-8"),
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=90) as r:
+            with urllib.request.urlopen(req, timeout=200) as r:
                 return json.loads(r.read().decode())
 
         a = run(37.7895, -122.3980)
@@ -116,11 +116,11 @@ class TestSyndicateEndpoints(unittest.TestCase):
             "sample_customers": "Tech corporate HQs"
         }
         req = urllib.request.Request(
-            "http://127.0.0.1:8090/api/simulate",
+            "http://127.0.0.1:8090/api/research",
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=60) as r:
             data = json.loads(r.read().decode())
         self.assertEqual(data.get("status"), "error")
         self.assertEqual(data.get("error"), "anchor_required")

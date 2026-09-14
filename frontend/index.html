@@ -468,7 +468,7 @@
         <span class="material-symbols-outlined" style="font-size: 14px;">lock</span>
         Sign in with Google
       </button>
-      <button class="btn btn-gold" onclick="triggerSimulation()">
+      <button class="btn btn-gold" onclick="runResearchScan()">
         <span class="material-symbols-outlined" style="font-size: 16px;">radar</span>
         Run Syndicate Scan
       </button>
@@ -553,7 +553,7 @@
         </div>
       </div>
 
-      <button class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px; margin-top: auto;" onclick="triggerSimulation()">
+      <button class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px; margin-top: auto;" onclick="runResearchScan()">
         <span class="material-symbols-outlined">rocket_launch</span>
         Launch Syndicate Engine
       </button>
@@ -605,18 +605,36 @@
 
         <div class="telemetry-item" id="tel-step-2">
           <div class="telemetry-status">
-            <span class="material-symbols-outlined" style="font-size: 13px;">radar</span> STEP 2: ANAKIN WIRE MINING
+            <span class="material-symbols-outlined" style="font-size: 13px;">radar</span> STEP 2: EVIDENCE RETRIEVAL
           </div>
-          <div class="telemetry-title">Sector Pain & Community Intelligence</div>
+          <div class="telemetry-title">Cited Sector Evidence</div>
           <div class="telemetry-desc" id="tel-pain-summary">Awaiting run.</div>
-          <div class="telemetry-meta">SOURCE: anakin-mcp</div>
+          <div class="telemetry-meta">SOURCES: anakin search + reddit threads</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-2b">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">psychology</span> STEP 2b: GROUNDED EXTRACTION
+          </div>
+          <div class="telemetry-title">ICP Intelligence (evidence-bound)</div>
+          <div class="telemetry-desc" id="tel-icp-summary">Awaiting run.</div>
+          <div class="telemetry-meta">MODEL: deepseek/deepseek-v4.1-flash</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-2c">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">badge</span> STEP 2c: DEMAND SIGNALS
+          </div>
+          <div class="telemetry-title">Hiring &amp; Expansion Intent</div>
+          <div class="telemetry-desc" id="tel-demand-summary">Awaiting run.</div>
+          <div class="telemetry-meta">omitted when no real signal is found</div>
         </div>
 
         <div class="telemetry-item" id="tel-step-3">
           <div class="telemetry-status">
             <span class="material-symbols-outlined" style="font-size: 13px;">corporate_fare</span> STEP 3: CORPORATE RADAR
           </div>
-          <div class="telemetry-title">Anchor Towers & Tenant Density</div>
+          <div class="telemetry-title">Anchor Towers &amp; Tenant Density</div>
           <div class="telemetry-desc" id="tel-towers-summary">Awaiting run.</div>
           <div class="telemetry-meta">API: Google Places</div>
         </div>
@@ -638,6 +656,16 @@
           <div class="telemetry-desc" id="tel-hotspot-summary">Awaiting run.</div>
           <div class="telemetry-meta">OPTIMIZER: Real-coordinate centroids</div>
         </div>
+
+        <div class="telemetry-item" id="tel-step-6">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">link</span> SOURCES
+          </div>
+          <div class="telemetry-title">Evidence This Run Is Based On</div>
+          <div class="telemetry-desc" id="tel-sources-summary">Awaiting run.</div>
+          <div id="tel-sources-list" style="margin-top: 8px; display: flex; flex-direction: column; gap: 5px;"></div>
+          <div class="telemetry-meta" id="tel-grounding">Every claim above traces to one of these sources.</div>
+        </div>
       </div>
 
       <!-- Tab 2: Interactive Agent Chat View -->
@@ -645,12 +673,12 @@
         <div class="chat-messages" id="chat-messages">
           <div class="chat-bubble bubble-agent">
             <strong>Mastra King Maker Agent</strong><br>
-            Hello! I am your spatial growth strategist. Drop a pin anywhere on the world map or adjust your scan radius to analyze commercial footfall, decision-maker density, and outlet placement.
+            I research live. Ask me to find customers, scan another area, or dig into a source — I'll call Google Maps and Anakin tools and show you what I actually found.
           </div>
         </div>
 
         <div class="chat-input-bar">
-          <input type="text" id="chat-input" class="input-field" placeholder="Ask about hotspots, deal sizes, or footfall..." onkeypress="handleChatKey(event)">
+          <input type="text" id="chat-input" class="input-field" placeholder="Ask the agent to research or find customers..." onkeypress="handleChatKey(event)">
           <button class="btn btn-gold" onclick="sendChatMessage()">
             <span class="material-symbols-outlined" style="font-size: 16px;">send</span>
           </button>
@@ -862,7 +890,7 @@
           document.getElementById('auth-step-profile').style.display = 'none';
           const modal = document.getElementById('auth-modal');
           if (modal.classList.contains('active')) modal.classList.remove('active');
-          addAgentChatMessage(`Welcome, ${currentUser.displayName || currentUser.email}. Registration complete. You can now run simulations and brief the agent.`);
+          addAgentChatMessage(`Welcome, ${currentUser.displayName || currentUser.email}. Registration complete. You can now run research scans and brief the agent.`);
         })
         .catch(err => {
           if (errEl) errEl.innerText = err.message;
@@ -1143,7 +1171,7 @@
     }
 
     // 5. Scan Execution Pipeline
-    // Results flow: browser -> Helix /api/simulations (same origin, table-backed)
+    // Results flow: browser -> Helix /api/research-runs (same origin, table-backed)
     // -> worker.py daemon executes the engine -> browser polls for its own task id.
     // There is NO client-side result generator: if the worker cannot be reached,
     // the UI reports failure instead of inventing pins.
@@ -1175,7 +1203,7 @@
       if (el) el.innerText = text;
     }
 
-    async function triggerSimulation() {
+    async function runResearchScan() {
       if (!currentUser && !guestModeAllowed) {
         toggleAuthModal();
         return;
@@ -1203,12 +1231,14 @@
       currentTaskId = taskId;
 
       setPipelineStatus('SUBMITTING...');
-      setText('tel-pain-summary', 'Queuing sector pain mining via Anakin Wire...');
+      setText('tel-pain-summary', 'Retrieving citable sector evidence from the live web and Reddit...');
+      setText('tel-icp-summary', 'Extraction runs once evidence is retrieved.');
+      setText('tel-demand-summary', 'Checking for real hiring/expansion signals...');
       setText('tel-ingest-summary', `Profile: ${payload.business_type || '-'}`);
       document.getElementById('tel-step-2').classList.add('active');
 
       try {
-        const createResp = await fetch('/api/simulations', {
+        const createResp = await fetch('/api/research-runs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1239,7 +1269,7 @@
         await new Promise(r => setTimeout(r, 2500));
         let rows = [];
         try {
-          const listResp = await fetch('/api/simulations', { headers: { 'Accept': 'application/json' } });
+          const listResp = await fetch('/api/research-runs', { headers: { 'Accept': 'application/json' } });
           if (!listResp.ok) continue;
           const body = await listResp.json();
           rows = Array.isArray(body) ? body : (body.data || []);
@@ -1301,39 +1331,99 @@
 
       currentSimData = data;
       resultsAreStale = false;
-      renderSimulationOnMap(data);
+      renderResearchOnMap(data);
 
       const counts = data.counts || {};
       const buildings = data.target_buildings || [];
       const touchpoints = data.offline_touchpoints || [];
       const hotspots = data.hotspot_recommendations || [];
-      const pain = (data.icp_intelligence && data.icp_intelligence.key_pain_points) || [];
+      const icp = data.icp_intelligence || {};
+      const pain = icp.pain_points || [];
+      const triggers = icp.buying_triggers || [];
+      const spaces = icp.online_spaces || [];
+      const signals = data.demand_signals || [];
+      const sources = data.sources || [];
+      const grounding = data.grounding || {};
 
       setPipelineStatus('COMPLETED', 'var(--syndicate-radar-cyan)');
       setText('tel-ingest-summary', `Profile locked: ${data.query.business_type || '-'} / r=${data.anchor_radius_meters}m`);
-      setText('tel-pain-summary', pain.length ? `Identified: ${pain[0].substring(0, 75)}...` : 'No sector pain signals returned.');
+
+      // Step 2: real retrieved evidence + the top CITED pain point with its source.
+      if (pain.length) {
+        const top = pain[0];
+        const src = sources.find(s => s.id === top.evidence_id) || {};
+        setText('tel-pain-summary',
+          `${counts.evidence || sources.length} evidence items retrieved. Top cited pain: ` +
+          `"${(top.claim || '').substring(0, 90)}" (source ${top.evidence_id}${src.url ? ' — ' + src.url.substring(0, 55) : ''})`);
+      } else {
+        setText('tel-pain-summary', `${counts.evidence || sources.length} evidence items retrieved; no pain point could be cited from them.`);
+      }
+
+      // Step 2b: extraction summary
+      setText('tel-icp-summary',
+        `${pain.length} cited pain point(s), ${triggers.length} buying trigger(s), ` +
+        `ICP: ${(icp.derived_icp_titles || []).join(', ') || 'n/a'}` +
+        `${icp.icp_titles_derived_fallback ? ' (labelled fallback)' : ''}. Online spaces: ${spaces.join(', ') || 'none cited'}.`);
+
+      // Step 2c: demand signals - omitted honestly when none were found.
+      setText('tel-demand-summary', signals.length
+        ? `${signals.length} real signal(s) with sources. Top: ${(signals[0].claim || '').substring(0, 80)}`
+        : 'No verifiable hiring/expansion signal found for this area — omitted rather than estimated.');
+
       setText('tel-towers-summary', `Anchored ${counts.buildings != null ? counts.buildings : buildings.length} real Places sites within ${data.anchor_radius_meters}m.`);
       setText('tel-touchpoints-summary', `Mapped ${counts.touchpoints != null ? counts.touchpoints : touchpoints.length} executive coffee, dining & transit touchpoints.`);
       setText('tel-hotspot-summary', hotspots.length
         ? `Top site: ${hotspots[0].name} (${hotspots[0].icp_density_score}% density, centroid-anchored).`
         : 'No hotspot could be derived - no sites found in radius.');
 
+      // Sources panel: every claim above is traceable to one of these.
+      renderSources(sources, grounding);
+
       addAgentChatMessage(
-        `Scan complete. ${buildings.length} real Places sites and ${hotspots.length} centroid-anchored hotspot(s) ` +
-        `mapped within ${data.anchor_radius_meters}m. Every pin is fixed to its own real coordinate - ` +
-        `moving the target pin will not shift them. Results id ${data.result_id ? data.result_id.slice(0, 8) : '-'}.`
+        `Research run complete. ${counts.evidence || sources.length} evidence items → ${pain.length} cited pain point(s), ` +
+        `${signals.length} demand signal(s), ${buildings.length} anchored sites, ${hotspots.length} hotspot(s). ` +
+        `Every pin is fixed to its own real coordinate. ` +
+        (grounding.claims_dropped ? `${grounding.claims_dropped} unverifiable claim(s) were discarded. ` : '') +
+        `Result id ${data.result_id ? data.result_id.slice(0, 8) : '-'}.`
       );
     }
 
-    function renderSimulationOnMap(data) {
+    // Renders the retrieved evidence so the user can check the research themselves.
+    function renderSources(sources, grounding) {
+      const list = document.getElementById('tel-sources-list');
+      if (!list) return;
+      list.innerHTML = '';
+
+      setText('tel-sources-summary', sources.length
+        ? `${sources.length} source(s) retrieved and used (${(grounding.evidence_ids || []).length} citable).`
+        : 'No sources were retrieved for this run.');
+
+      sources.slice(0, 20).forEach(s => {
+        const a = document.createElement('a');
+        a.href = s.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.style.cssText = 'font-size: 0.68rem; color: var(--syndicate-radar-cyan); text-decoration: none; line-height: 1.3; word-break: break-all;';
+        const kind = s.kind === 'reddit_thread' || s.kind === 'reddit_post' ? 'reddit' : 'web';
+        a.innerText = `[${s.id}] ${kind} · ${(s.title || s.source || s.url || '').substring(0, 60)}`;
+        list.appendChild(a);
+      });
+
+      setText('tel-grounding', grounding && grounding.claims_total != null
+        ? `Grounding: ${grounding.claims_kept}/${grounding.claims_total} claims traceable` +
+          (grounding.claims_dropped ? `, ${grounding.claims_dropped} discarded as unverifiable.` : ' (none discarded).')
+        : 'Every claim above traces to one of these sources.');
+    }
+
+    function renderResearchOnMap(data) {
       if (gmap) {
-        renderGoogleMapsSimulation(data);
+        renderGoogleMapsResearch(data);
       } else if (map) {
-        renderLeafletSimulation(data);
+        renderLeafletResearch(data);
       }
     }
 
-    function renderGoogleMapsSimulation(data) {
+    function renderGoogleMapsResearch(data) {
       // Clear previous layers
       gmapMarkers.forEach(m => m.setMap(null));
       gmapMarkers = [];
@@ -1449,7 +1539,7 @@
       });
     }
 
-    function renderLeafletSimulation(data) {
+    function renderLeafletResearch(data) {
       // Clear previous layers
       buildingMarkers.forEach(m => map.removeLayer(m));
       buildingMarkers = [];
@@ -1557,30 +1647,75 @@
       // Append user bubble
       appendChatBubble(text, 'user');
 
-      // 1) Try the local Mastra reasoning service when it is reachable.
+      // 1) Talk to the LIVE Mastra agent through the Helix chat queue. The
+      // browser cannot reach a localhost port, so we post a pending row and poll
+      // for our own reply id - same pattern as the research runs.
+      appendChatBubble('Researching…', 'agent');
+      const thinking = document.querySelector('#chat-messages .chat-bubble:last-child');
+      const chatId = (crypto.randomUUID ? crypto.randomUUID() : ('c' + Date.now()));
+
+      const scanContext = currentSimData ? {
+        anchor: currentSimData.anchor,
+        radius_meters: currentSimData.anchor_radius_meters,
+        business_type: currentSimData.query && currentSimData.query.business_type,
+        icp_titles: (currentSimData.icp_intelligence || {}).derived_icp_titles,
+        hotspot: (currentSimData.hotspot_recommendations || [])[0] || null,
+        counts: currentSimData.counts
+      } : {};
+
+      let agentReply = null;
+      let agentTools = [];
       try {
-        const resp = await fetch('http://127.0.0.1:8090/api/chat', {
+        const post = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            id: chatId,
+            user_id: currentUser ? currentUser.email : (guestSessionId || 'guest'),
             message: text,
-            context: currentSimData ? currentSimData.query : {},
-            user_id: currentUser ? currentUser.email : (guestSessionId || 'guest')
+            context: JSON.stringify(scanContext),
+            status: 'pending',
+            created_at: new Date().toISOString()
           })
         });
-        if (resp.ok) {
-          const res = await resp.json();
-          appendChatBubble(res.reply, 'agent');
-          return;
+        if (post.ok) {
+          const deadline = Date.now() + 300000;   // 5 minutes
+          while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 2500));
+            try {
+              const lr = await fetch('/api/chat', { headers: { 'Accept': 'application/json' } });
+              if (!lr.ok) continue;
+              const body = await lr.json();
+              const rows = Array.isArray(body) ? body : (body.data || []);
+              const mine = rows
+                .filter(r => r && r.status === ('replied:' + chatId))
+                .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+              if (mine.length && mine[0].reply) {
+                agentReply = mine[0].reply;
+                try { agentTools = JSON.parse(mine[0].tool_calls || '[]'); } catch (e) { agentTools = []; }
+                break;
+              }
+            } catch (e) { /* keep polling */ }
+          }
         }
       } catch (e) {
-        // Local service unreachable from a hosted browser - fall through to a
-        // reply grounded strictly in the real result already on screen.
+        // queue unreachable - fall through to the grounded local answer below
       }
 
-      // 2) No result yet: say so plainly rather than inventing an analysis.
+      if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
+
+      if (agentReply) {
+        appendChatBubble(agentReply, 'agent');
+        if (agentTools.length) {
+          const names = agentTools.map(t => t.tool).join(', ');
+          appendChatBubble(`Ran ${agentTools.length} tool call(s): ${names}`, 'agent');
+        }
+        return;
+      }
+
+      // 2) Agent unavailable and no scan data: say so plainly.
       if (!currentSimData) {
-        appendChatBubble('No scan has been run yet in this session, so I have no mapped data to reason over. Set your business profile, drop a target pin, then launch the scan.', 'agent');
+        appendChatBubble('The research agent is not reachable right now, and no scan has been run yet, so I have no data to reason over.', 'agent');
         return;
       }
 

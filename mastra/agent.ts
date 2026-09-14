@@ -1,135 +1,65 @@
+/**
+ * Syndicate King Maker - live research agent.
+ *
+ * Every tool on this agent makes a real call: Anakin MCP over stdio, or the
+ * Google Maps APIs. The previous revision of this file returned hardcoded fake
+ * buildings (lat + 0.002), invented pain signals and stub subreddits - that
+ * fabrication has been deleted, in line with the engine's "no invented data"
+ * invariant.
+ */
+import './env.js'; // must precede any module that reads process.env at import time
 import { Agent } from '@mastra/core/agent';
-import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
-import * as dotenv from 'dotenv';
-dotenv.config();
+import { createOpenAI } from '@ai-sdk/openai';
+import { anakinSearchTool, anakinRedditPostsTool, anakinScrapeTool } from './tools_anakin.js';
+import { googlePlacesTool, googleGeocodeTool } from './tools_maps.js';
 
-// Tool 1: Anakin Wire Sector Pain & Community Miner
-export const anakinWireTool = createTool({
-  id: 'anakin-wire-sector-miner',
-  description: 'Mines sector complaints, operational bottlenecks, and vendor dissatisfaction signals from Reddit, Trustpilot, and Web via Anakin Wire network-layer actions.',
-  inputSchema: z.object({
-    businessType: z.string().describe('The industry or service category (e.g. Fast Food, Cleaning, Ad Agency, B2B SaaS)'),
-    offering: z.string().describe('Core product or service description'),
-    targetCity: z.string().describe('Target city or geographic region')
-  }),
-  execute: async ({ context }) => {
-    const { businessType, offering, targetCity } = context;
-    return {
-      query: `${businessType} ${offering} complaints problems reddit ${targetCity}`,
-      status: 'success',
-      signals: [
-        `High volume of complaints regarding service response latency and SLA enforcement in ${businessType}`,
-        `Decision makers express frustration with rigid long-term vendor contracts and lack of transparent pricing`,
-        `Urgent demand for localized, high-touch support within walking distance of central business hubs`
-      ],
-      onlineCommunities: [`r/${businessType.toLowerCase().replace(/[^a-z0-9]/g, '')}`, `r/bayarea`, `r/sanfrancisco`, `LinkedIn Local SF B2B Network`]
-    };
-  }
+// OpenRouter is OpenAI-compatible, so the OpenAI provider works with a baseURL swap.
+const openrouter = createOpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY ?? '',
 });
 
-// Tool 2: Google Places Target Building & Tenant Scanner
-export const googlePlacesScannerTool = createTool({
-  id: 'google-places-building-scanner',
-  description: 'Scans commercial office towers, corporate parks, and co-working hubs around specific geographic coordinates and radius.',
-  inputSchema: z.object({
-    lat: z.number().describe('Latitude of the center coordinate'),
-    lng: z.number().describe('Longitude of the center coordinate'),
-    radiusMeters: z.number().default(1500).describe('Search radius in meters')
-  }),
-  execute: async ({ context }) => {
-    const { lat, lng, radiusMeters } = context;
-    return {
-      center: { lat, lng },
-      radius: radiusMeters,
-      buildingsFound: [
-        { name: 'Primary Corporate Tower', lat: lat + 0.002, lng: lng - 0.001, estimatedCompanies: 45, decisionMakers: 320 },
-        { name: 'Financial Plaza & Executive Suites', lat: lat - 0.0015, lng: lng + 0.002, estimatedCompanies: 30, decisionMakers: 210 },
-        { name: 'Tech Innovation Park', lat: lat + 0.003, lng: lng + 0.001, estimatedCompanies: 38, decisionMakers: 270 }
-      ]
-    };
-  }
-});
+// Verified available and reliable for strict-JSON work with citations.
+// Do NOT use google/gemini-3.7-flash: it is a reasoning model that returns
+// content: null, which breaks structured output.
+export const MODEL_ID = process.env.SYNDICATE_LLM_MODEL ?? 'deepseek/deepseek-v4.1-flash';
 
-// Tool 3: Offline Social Engineering & Touchpoint Simulator
-export const offlineTouchpointSimulatorTool = createTool({
-  id: 'offline-touchpoint-simulator',
-  description: 'Identifies executive cafes, lunch spots, and transit corridors within 350m-600m walking radius of target buildings for physical engagement.',
-  inputSchema: z.object({
-    buildingName: z.string().describe('Name of the anchor corporate building'),
-    lat: z.number(),
-    lng: z.number()
-  }),
-  execute: async ({ context }) => {
-    const { buildingName, lat, lng } = context;
-    return {
-      building: buildingName,
-      touchpoints: [
-        { name: 'Executive Specialty Coffee Hub', type: 'cafe', distanceMeters: 180, peakHours: '8:30 AM - 10:00 AM' },
-        { name: 'High-End Business Bistro', type: 'restaurant', distanceMeters: 260, peakHours: '12:00 PM - 1:45 PM' },
-        { name: 'Transit & Rideshare Departure Corridor', type: 'transit', distanceMeters: 120, peakHours: '5:00 PM - 6:30 PM' }
-      ]
-    };
-  }
-});
-
-// Tool 4: Spatial Voronoi & Density Hotspot Optimizer
-export const hotspotOptimizerTool = createTool({
-  id: 'spatial-hotspot-optimizer',
-  description: 'Clusters customer density coordinates, footfall mass, and recommends top 3 commercial outlet establishment locations.',
-  inputSchema: z.object({
-    lat: z.number(),
-    lng: z.number(),
-    radiusMeters: z.number()
-  }),
-  execute: async ({ context }) => {
-    const { lat, lng, radiusMeters } = context;
-    return {
-      topHotspots: [
-        {
-          clusterId: 'HS-01',
-          name: 'Central Business Corridor',
-          center: { lat: lat + 0.0005, lng: lng - 0.0008 },
-          densityScore: 98.4,
-          dailyFootfall: 28500,
-          monthlyReach: 7400,
-          outletType: 'Flagship Sales Lounge & Priority Hub',
-          strategicEdge: 'Unmatched executive pedestrian flow during morning and lunch transit peaks.'
-        },
-        {
-          clusterId: 'HS-02',
-          name: 'Enterprise Commercial Plaza',
-          center: { lat: lat + 0.003, lng: lng + 0.002 },
-          densityScore: 93.2,
-          dailyFootfall: 21000,
-          monthlyReach: 5800,
-          outletType: 'Fast-Turnaround Service Kiosk',
-          strategicEdge: 'High corporate budget authority and recurring contract potential.'
-        }
-      ]
-    };
-  }
-});
-
-// Mastra King Maker Agent Definition
 export const syndicateKingMakerAgent = new Agent({
   id: 'syndicate-king-maker',
   name: 'Syndicate King Maker',
   instructions: `
-You are the Chief Spatial Growth & Commercial Expansion Intelligence Agent for 'Syndicate: The King Maker'.
-Your expertise spans:
-1. Translating broad company criteria (fast food, commercial cleaning, ad agencies, B2B SaaS) into physical customer density maps.
-2. Formulating sector pain points and buying triggers using Anakin Wire network-layer signals from Reddit and online reviews.
-3. Modeling executive mobility—identifying where decision makers congregate for morning coffee, lunch breaks, and transit departure.
-4. Pinpointing the optimal physical real-estate outlet locations that maximize contract acquisition, footfall density, and strategic ROI.
+You are the chief commercial expansion and site-selection research agent for Syndicate.
 
-Always provide grounded, highly structured analysis with specific pedestrian counts, executive titles, and strategic reasoning.
+You work only from real retrieved data. You have these tools:
+- google-geocode: turn a place name or city into real coordinates.
+- google-places-nearby: find real businesses/offices/cafes within a radius of a coordinate.
+- anakin-search: search the live web and Reddit for a sector, competitor, pricing or hiring signal.
+- anakin-reddit-posts: read real posts from a subreddit.
+- anakin-scrape: read a specific page or thread in full.
+
+HARD RULES:
+1. NEVER invent facts, names, numbers, coordinates or sources. If a tool did not
+   return it, you do not know it.
+2. Every claim you make must name the source url that produced it.
+3. Coordinates must come from a tool call, never estimated.
+4. If a tool returns nothing, say plainly that the data was not found. Do not fill
+   the gap with plausible wording.
+5. Prefer doing the work over describing it: if the user asks you to research an
+   area, geocode it, then search places around it, then report what you actually
+   found.
+
+When the user asks you to find new customers or expand a scan, chain the tools:
+geocode the area -> places-nearby for the ICP's buildings -> anakin-search for
+that sector's buying signals -> report findings with urls and coordinates.
 `,
-  model: 'openrouter/google/gemini-3.7-flash',
+  // .chat() pins the chat-completions endpoint; the bare callable defaults to
+  // OpenRouter's /responses route, which does not serve this model.
+  model: openrouter.chat(MODEL_ID),
   tools: {
-    anakinWireTool,
-    googlePlacesScannerTool,
-    offlineTouchpointSimulatorTool,
-    hotspotOptimizerTool
-  }
+    anakinSearchTool,
+    anakinRedditPostsTool,
+    anakinScrapeTool,
+    googlePlacesTool,
+    googleGeocodeTool,
+  },
 });
