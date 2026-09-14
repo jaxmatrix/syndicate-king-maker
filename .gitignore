@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime artifacts
+worker.log
+*.log
+.allr/state/
+_fetch.json
+_rows.json
+_frontend_check.js
+
+# Build / deploy artifacts
+_deploy.zip
+*.zip
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

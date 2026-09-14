@@ -1,0 +1,21 @@
+{
+  "rationale": "Add DELETE /api/simulations so the client can purge pre-baked and completed task rows (the table doubles as the task queue and must not accumulate stale results).",
+  "operations": [
+    {
+      "op": "update_resource",
+      "applicationId": "cf126906-b884-47b3-a1d8-aec3b9d44dd3",
+      "resourceId": "37fdaae0-6b5c-4479-a322-d71c4ed18840",
+      "patch": {
+        "name": "syndicate_api",
+        "configuration": {
+          "basePath": "/api",
+          "routes": [
+            { "method": "GET", "path": "/simulations", "handler": "list", "table": "simulations", "auth": false },
+            { "method": "POST", "path": "/simulations", "handler": "create", "table": "simulations", "auth": false },
+            { "method": "DELETE", "path": "/simulations", "handler": "delete", "table": "simulations", "auth": false }
+          ]
+        }
+      }
+    }
+  ]
+}

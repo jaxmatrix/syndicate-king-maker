@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Syndicate: The King Maker — Autonomous Commercial Expansion & Site Selection</title>
+  
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👑</text></svg>">
+  
+  <!-- Typography & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+
+  <!-- Tactical Map Engines (Leaflet Dark Matter + Google Maps SDK Bridge) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Firebase Auth SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    :root {
+      --syndicate-gold: #FFB84D;
+      --syndicate-gold-dark: #C68000;
+      --syndicate-gold-glow: rgba(255, 184, 77, 0.28);
+      --syndicate-radar-cyan: #4DEEEA;
+      --syndicate-radar-glow: rgba(77, 238, 234, 0.25);
+      
+      --bg-dark: #100E0B;
+      --surface-lowest: #0B0907;
+      --surface-low: #15130F;
+      --surface-mid: #1E1A14;
+      --surface-high: #27221A;
+      --surface-highest: #332D23;
+      
+      --text-main: #F5EFE8;
+      --text-muted: #A39686;
+      --border-subtle: #362D20;
+      --border-bright: #4E412F;
+      
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-full: 9999px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Navigation Header */
+    .navbar {
+      height: 64px;
+      background: rgba(16, 14, 11, 0.95);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      z-index: 1000;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--syndicate-gold), var(--syndicate-gold-dark));
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #100E0B;
+      font-weight: 800;
+      box-shadow: 0 0 16px var(--syndicate-gold-glow);
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #FFF;
+    }
+    .brand-title span { color: var(--syndicate-gold); }
+    .brand-badge {
+      font-size: 0.65rem;
+      background: var(--surface-highest);
+      color: var(--syndicate-radar-cyan);
+      padding: 3px 8px;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(77, 238, 234, 0.3);
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: var(--radius-full);
+      font-size: 0.825rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+      font-family: inherit;
+    }
+    .btn-gold {
+      background: linear-gradient(135deg, #FFB84D, #E69500);
+      color: #1A1102;
+      box-shadow: 0 4px 14px var(--syndicate-gold-glow);
+    }
+    .btn-gold:hover {
+      background: linear-gradient(135deg, #FFC46B, #FF9E0D);
+      transform: translateY(-1px);
+    }
+    .btn-tonal {
+      background: var(--surface-high);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+    }
+    .btn-tonal:hover {
+      background: var(--surface-highest);
+      border-color: var(--border-bright);
+    }
+    .btn-active {
+      background: var(--syndicate-gold) !important;
+      color: #100E0B !important;
+      border-color: var(--syndicate-gold) !important;
+      font-weight: 700;
+    }
+
+    /* 3-Column Command Center Workspace */
+    .command-grid {
+      display: grid;
+      grid-template-columns: 380px 1fr 420px;
+      height: calc(100vh - 64px);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Left Panel: Business & Criteria Controls */
+    .left-panel {
+      background: var(--surface-low);
+      border-right: 1px solid var(--border-subtle);
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .section-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #FFF;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .chip {
+      background: var(--surface-mid);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 5px 10px;
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .chip:hover, .chip.active {
+      background: var(--surface-highest);
+      color: var(--syndicate-gold);
+      border-color: var(--syndicate-gold);
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .input-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .input-field, .textarea-field {
+      width: 100%;
+      background: var(--surface-lowest);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+    .input-field:focus, .textarea-field:focus {
+      border-color: var(--syndicate-gold);
+    }
+
+    /* Drop-Pin & Range Controls */
+    .range-box {
+      background: var(--surface-mid);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .range-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+    }
+    .range-slider {
+      width: 100%;
+      accent-color: var(--syndicate-gold);
+      cursor: pointer;
+    }
+
+    /* Center Map Canvas Surface */
+    .map-center {
+      position: relative;
+      height: 100%;
+      background: #100E0B;
+    }
+    #map-surface {
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-floating-bar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(21, 19, 15, 0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-full);
+      padding: 6px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    /* Right Sidebar: Agent Telemetry & Interactive Chat */
+    .right-sidebar {
+      background: var(--surface-low);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .right-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--surface-lowest);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .tab-btn.active {
+      color: var(--syndicate-gold);
+      border-bottom: 2px solid var(--syndicate-gold);
+      background: var(--surface-low);
+    }
+
+    .tab-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Live Telemetry Step Items */
+    .telemetry-item {
+      background: var(--surface-mid);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      position: relative;
+    }
+    .telemetry-item.active {
+      border-color: var(--syndicate-gold);
+    }
+    .telemetry-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--syndicate-radar-cyan);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .telemetry-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #FFF;
+      margin-bottom: 2px;
+    }
+    .telemetry-desc {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+    .telemetry-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--syndicate-gold);
+      margin-top: 6px;
+    }
+
+    /* Interactive Agent Chat */
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding-bottom: 12px;
+    }
+    .chat-bubble {
+      max-width: 90%;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      font-size: 0.825rem;
+      line-height: 1.45;
+    }
+    .bubble-agent {
+      background: var(--surface-high);
+      border: 1px solid var(--border-bright);
+      color: var(--text-main);
+      align-self: flex-start;
+      border-top-left-radius: 2px;
+    }
+    .bubble-user {
+      background: linear-gradient(135deg, #FFB84D, #E69500);
+      color: #100E0B;
+      font-weight: 600;
+      align-self: flex-end;
+      border-top-right-radius: 2px;
+    }
+    .chat-input-bar {
+      display: flex;
+      gap: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    /* Auth Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-box {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface-low);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="brand-wrap" onclick="location.reload()">
+      <div class="brand-logo">S</div>
+      <div>
+        <div class="brand-title">SYNDICATE <span>KING MAKER</span></div>
+        <div style="font-size: 0.65rem; color: var(--text-muted); font-weight: 500;">Autonomous Spatial Commercialization Engine</div>
+      </div>
+      <span class="brand-badge">Mastra • Anakin Wire</span>
+    </div>
+
+    <div class="nav-actions">
+      <div id="user-display" style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+        <img id="user-photo" src="" alt="" style="display: none; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--syndicate-gold);">
+        <span class="material-symbols-outlined" style="font-size: 16px; color: var(--syndicate-gold);">account_circle</span>
+        <span id="user-email">Not Signed In</span>
+      </div>
+      <button class="btn btn-tonal" id="auth-btn" onclick="handleGoogleSignIn()">
+        <span class="material-symbols-outlined" style="font-size: 14px;">lock</span>
+        Sign in with Google
+      </button>
+      <button class="btn btn-gold" onclick="triggerSimulation()">
+        <span class="material-symbols-outlined" style="font-size: 16px;">radar</span>
+        Run Syndicate Scan
+      </button>
+    </div>
+  </header>
+
+  <!-- Main 3-Column Command Grid -->
+  <div class="command-grid">
+    
+    <!-- Left Column: Business Criteria & Range Ingest -->
+    <aside class="left-panel">
+      <div>
+        <div class="section-title">
+          <span class="material-symbols-outlined" style="color: var(--syndicate-gold); font-size: 18px;">tune</span>
+          Business Profile & Offering
+        </div>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+          Configure your service and target client profile.
+        </p>
+      </div>
+
+      <!-- Archetype Presets -->
+      <div>
+        <label class="input-label">Select Business Archetype</label>
+        <div class="preset-chips">
+          <div class="chip active" onclick="loadPreset('fast_food')">🍔 Fast Food / Catering</div>
+          <div class="chip" onclick="loadPreset('cleaning')">🧹 Commercial Cleaning</div>
+          <div class="chip" onclick="loadPreset('agency')">🚀 Creative / Ad Agency</div>
+          <div class="chip" onclick="loadPreset('b2b_saas')">💻 Enterprise B2B SaaS</div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Company Name</label>
+        <input type="text" id="company_name" class="input-field" value="Krave Gourmet Express">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Business / Industry Type</label>
+        <input type="text" id="business_type" class="input-field" value="Fast Food & Corporate Catering">
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Core Offering & Value Proposition</label>
+        <textarea id="offering" class="textarea-field" rows="2">Ultra-fast healthy gourmet bowls, grab-and-go express kiosks, and scheduled corporate team catering.</textarea>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Target Customer Criteria / Anchor Accounts</label>
+        <textarea id="sample_customers" class="textarea-field" rows="2">Tech corporate HQs, VC funds, corporate law firms, Salesforce Tower, Stripe, Uber, and corporate teams with 50+ staff.</textarea>
+      </div>
+
+      <!-- Drop-Pin & Range Controls -->
+      <div class="range-box">
+        <div class="range-header">
+          <span class="section-title" style="font-size: 0.85rem;">
+            <span class="material-symbols-outlined" style="font-size: 16px; color: var(--syndicate-radar-cyan);">pin_drop</span>
+            Spatial Pin & Scan Radius
+          </span>
+          <span id="radius-val" style="color: var(--syndicate-gold); font-weight: 700; font-size: 0.8rem;">1,500m</span>
+        </div>
+        
+        <input type="range" id="radius-slider" class="range-slider" min="500" max="8000" step="250" value="1500" oninput="updateRadius(this.value)">
+        
+        <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted);">
+          <span>500m (Micro-Hub)</span>
+          <span>4,000m (District)</span>
+          <span>8,000m (Metro)</span>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 4px;">
+          <button class="btn btn-tonal" id="drop-pin-btn" style="flex: 1; justify-content: center; font-size: 0.75rem;" onclick="toggleDropPinMode()">
+            <span class="material-symbols-outlined" style="font-size: 14px;">location_searching</span>
+            <span id="pin-btn-text">Drop Target Pin</span>
+          </button>
+          <button class="btn btn-tonal" style="padding: 6px 10px;" onclick="locateUserPosition()" title="Use Current Location">
+            <span class="material-symbols-outlined" style="font-size: 16px;">my_location</span>
+          </button>
+        </div>
+        <div id="pin-coords" style="font-size: 0.7rem; color: var(--syndicate-radar-cyan); font-family: 'JetBrains Mono', monospace; text-align: center;">
+          Center: 37.7895, -122.3980 (San Francisco)
+        </div>
+      </div>
+
+      <button class="btn btn-gold" style="width: 100%; justify-content: center; padding: 12px; margin-top: auto;" onclick="triggerSimulation()">
+        <span class="material-symbols-outlined">rocket_launch</span>
+        Launch Syndicate Engine
+      </button>
+    </aside>
+
+    <!-- Center Column: Global Interactive Map Surface -->
+    <main class="map-center">
+      <div id="map-surface"></div>
+
+      <!-- Floating Map Info & Heatmap Toggle -->
+      <div class="map-floating-bar">
+        <span class="material-symbols-outlined" style="color: var(--syndicate-gold); font-size: 18px;">public</span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: #FFF;">Global Commercial Surface</span>
+        <span style="color: var(--border-bright);">|</span>
+        <button class="btn btn-tonal" style="padding: 4px 10px; font-size: 0.72rem;" onclick="toggleHeatmapOverlay()">
+          <span class="material-symbols-outlined" style="font-size: 13px;">layers</span> Toggle Density Glow
+        </button>
+      </div>
+    </main>
+
+    <!-- Right Column: Live Telemetry & Mastra Agent Chat -->
+    <aside class="right-sidebar">
+      <div class="right-tabs">
+        <button class="tab-btn active" id="tab-telemetry-btn" onclick="switchRightTab('telemetry')">
+          <span class="material-symbols-outlined" style="font-size: 16px;">dynamic_form</span>
+          Live Telemetry Log
+        </button>
+        <button class="tab-btn" id="tab-chat-btn" onclick="switchRightTab('chat')">
+          <span class="material-symbols-outlined" style="font-size: 16px;">smart_toy</span>
+          Mastra Agent Chat
+        </button>
+      </div>
+
+      <!-- Tab 1: Live Telemetry Log View -->
+      <div id="tab-telemetry" class="tab-content">
+        <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; justify-content: space-between;">
+          <span>AUTONOMOUS AGENT PIPELINE</span>
+          <span id="pipeline-status" style="color: var(--text-muted); font-weight: 700;">IDLE — NO SCAN RUN</span>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-1">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">check_circle</span> STEP 1: BUSINESS INGEST
+          </div>
+          <div class="telemetry-title">Profile & Constraints</div>
+          <div class="telemetry-desc" id="tel-ingest-summary">Awaiting run.</div>
+          <div class="telemetry-meta">STATUS: idle</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-2">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">radar</span> STEP 2: ANAKIN WIRE MINING
+          </div>
+          <div class="telemetry-title">Sector Pain & Community Intelligence</div>
+          <div class="telemetry-desc" id="tel-pain-summary">Awaiting run.</div>
+          <div class="telemetry-meta">SOURCE: anakin-mcp</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-3">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">corporate_fare</span> STEP 3: CORPORATE RADAR
+          </div>
+          <div class="telemetry-title">Anchor Towers & Tenant Density</div>
+          <div class="telemetry-desc" id="tel-towers-summary">Awaiting run.</div>
+          <div class="telemetry-meta">API: Google Places</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-4">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">local_cafe</span> STEP 4: SOCIAL GRAPH
+          </div>
+          <div class="telemetry-title">Executive Lunch & Transit Corridors</div>
+          <div class="telemetry-desc" id="tel-touchpoints-summary">Awaiting run.</div>
+          <div class="telemetry-meta">ALGORITHM: Spatial Walking Flow</div>
+        </div>
+
+        <div class="telemetry-item" id="tel-step-5">
+          <div class="telemetry-status">
+            <span class="material-symbols-outlined" style="font-size: 13px;">storefront</span> STEP 5: OUTLET RECOMMENDATION
+          </div>
+          <div class="telemetry-title">Hotspot Centroid Clustering</div>
+          <div class="telemetry-desc" id="tel-hotspot-summary">Awaiting run.</div>
+          <div class="telemetry-meta">OPTIMIZER: Real-coordinate centroids</div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Interactive Agent Chat View -->
+      <div id="tab-chat" class="tab-content chat-container" style="display: none;">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-bubble bubble-agent">
+            <strong>Mastra King Maker Agent</strong><br>
+            Hello! I am your spatial growth strategist. Drop a pin anywhere on the world map or adjust your scan radius to analyze commercial footfall, decision-maker density, and outlet placement.
+          </div>
+        </div>
+
+        <div class="chat-input-bar">
+          <input type="text" id="chat-input" class="input-field" placeholder="Ask about hotspots, deal sizes, or footfall..." onkeypress="handleChatKey(event)">
+          <button class="btn btn-gold" onclick="sendChatMessage()">
+            <span class="material-symbols-outlined" style="font-size: 16px;">send</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Auth Modal: Google Sign-In + Guest -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-box">
+      <button class="modal-close" onclick="toggleAuthModal()">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div class="brand-logo" style="margin: 0 auto 10px auto;">S</div>
+        <h3 style="font-size: 1.2rem; font-weight: 700; color: #FFF;">Sign in to Syndicate</h3>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">Registration is instant with Google. Or explore in guest mode.</p>
+      </div>
+
+      <!-- Step 1: Identity (Google or Guest) -->
+      <div id="auth-step-identity">
+        <button class="btn btn-gold" style="width: 100%; justify-content: center; gap: 10px;" onclick="handleGoogleSignIn()">
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C11.57 13.28 17.26 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.1-10.36 7.1-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.74 0-12.43-3.78-14.45-9.11l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          Sign in with Google
+        </button>
+        <div style="margin-top: 12px;">
+          <button class="btn btn-tonal" style="width: 100%; justify-content: center; font-size: 0.78rem;" onclick="continueAsGuest()">
+            <span class="material-symbols-outlined" style="font-size: 15px;">person</span>
+            Continue in Guest Mode (limited, session-only)
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Profile (first-time Google registrants) -->
+      <div id="auth-step-profile" style="display: none;">
+        <h4 style="font-size: 0.95rem; font-weight: 700; color: #FFF; margin-bottom: 4px;">Complete your registration</h4>
+        <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 14px;">Tell us who's operating this workspace.</p>
+        <div class="input-group" style="margin-bottom: 12px;">
+          <label class="input-label">Company / Fund / Studio</label>
+          <input type="text" id="profile-company" class="input-field" placeholder="Acme Expansion Team">
+        </div>
+        <div class="input-group" style="margin-bottom: 16px;">
+          <label class="input-label">Primary Use Case</label>
+          <select id="profile-usecase" class="input-field">
+            <option value="Site Selection">Site Selection</option>
+            <option value="Market Research">Market Research</option>
+            <option value="Competitive Intelligence">Competitive Intelligence</option>
+            <option value="Deal Sourcing">Deal Sourcing</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <button class="btn btn-gold" style="width: 100%; justify-content: center;" onclick="saveProfile(false)">Enter Syndicate</button>
+        <div style="text-align: center; margin-top: 10px;">
+          <a href="#" onclick="saveProfile(true); return false;" style="font-size: 0.72rem; color: var(--text-muted); text-decoration: underline;">Skip for now</a>
+        </div>
+      </div>
+
+      <div id="auth-error" style="color: #FF6B6B; font-size: 0.75rem; margin-top: 10px; text-align: center;"></div>
+    </div>
+  </div>
+
+  <!-- Main Application Logic -->
+  <script>
+    // 1. Firebase Initialization & Auth State
+    const firebaseConfig = {
+      apiKey: "AIzaSyAlk7oBfkTUIA8NUW7UKW1W-UbEfNBh2dY",
+      authDomain: "intelligence-8c622.firebaseapp.com",
+      projectId: "intelligence-8c622",
+      storageBucket: "intelligence-8c622.firebasestorage.app",
+      messagingSenderId: "428276184291",
+      appId: "1:428276184291:web:013dcff23b9cc7e3b641d6"
+    };
+
+    let fbAuth = null;
+    let fbDb = null;
+    let currentUser = null;
+    let guestModeAllowed = false;
+    let guestSessionId = null;
+    let profileStepOpen = false;
+
+    function updateAuthUI() {
+      const emailEl = document.getElementById('user-email');
+      const photoEl = document.getElementById('user-photo');
+      const btn = document.getElementById('auth-btn');
+      if (!emailEl || !btn) return;
+      if (currentUser) {
+        emailEl.innerText = currentUser.email || 'Signed In';
+        if (photoEl) {
+          if (currentUser.photoURL) { photoEl.src = currentUser.photoURL; photoEl.style.display = 'inline-block'; }
+          else { photoEl.style.display = 'none'; }
+        }
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">lock_open</span> Sign Out';
+        btn.onclick = () => { if (fbAuth) fbAuth.signOut(); };
+      } else {
+        if (photoEl) photoEl.style.display = 'none';
+        emailEl.innerText = guestModeAllowed ? 'Guest Mode (Session Only)' : 'Not Signed In';
+        btn.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px;">lock</span> Sign in with Google';
+        btn.onclick = () => handleGoogleSignIn();
+      }
+    }
+
+    try {
+      firebase.initializeApp(firebaseConfig);
+      fbAuth = firebase.auth();
+      fbDb = firebase.firestore();
+      fbAuth.onAuthStateChanged(user => {
+        currentUser = user || null;
+        updateAuthUI();
+        if (currentUser) ensureProfileDoc(currentUser);
+      });
+    } catch (e) {
+      console.warn("Firebase initialized in fallback mode:", e);
+    }
+
+    function toggleAuthModal() {
+      const modal = document.getElementById('auth-modal');
+      const willOpen = !modal.classList.contains('active');
+      document.getElementById('auth-error').innerText = '';
+      if (willOpen && !profileStepOpen) {
+        document.getElementById('auth-step-identity').style.display = 'block';
+        document.getElementById('auth-step-profile').style.display = 'none';
+      }
+      modal.classList.toggle('active');
+    }
+
+    function continueAsGuest() {
+      guestModeAllowed = true;
+      guestSessionId = 'guest:' + (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
+      profileStepOpen = false;
+      const modal = document.getElementById('auth-modal');
+      if (modal.classList.contains('active')) modal.classList.remove('active');
+      updateAuthUI();
+      addAgentChatMessage('Guest session active. Set your business profile and drop a target pin, then launch the scan when ready.');
+    }
+
+    function handleGoogleSignIn() {
+      if (!fbAuth) return continueAsGuest();
+      const errEl = document.getElementById('auth-error');
+      errEl.innerText = '';
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      fbAuth.signInWithPopup(provider)
+        .then(() => {
+          profileStepOpen = false;
+          const modal = document.getElementById('auth-modal');
+          if (modal.classList.contains('active')) modal.classList.remove('active');
+        })
+        .catch(err => {
+          if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') return;
+          if (err.code === 'auth/popup-blocked') {
+            fbAuth.signInWithRedirect(provider).catch(e => { errEl.innerText = e.message; });
+            return;
+          }
+          if (err.code === 'auth/operation-not-allowed') {
+            errEl.innerText = 'Google sign-in is not enabled yet for this Firebase project (Authentication → Sign-in method → Google).';
+            return;
+          }
+          errEl.innerText = err.message;
+        });
+    }
+
+    function showProfileStep() {
+      profileStepOpen = true;
+      document.getElementById('auth-step-identity').style.display = 'none';
+      document.getElementById('auth-step-profile').style.display = 'block';
+      const modal = document.getElementById('auth-modal');
+      if (!modal.classList.contains('active')) modal.classList.add('active');
+    }
+
+    function ensureProfileDoc(user) {
+      if (!fbDb) return;
+      fbDb.collection('users').doc(user.uid).get()
+        .then(doc => {
+          if (!doc.exists) {
+            showProfileStep();
+          } else {
+            doc.ref.update({ lastSeenAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(() => {});
+          }
+        })
+        .catch(err => { console.warn('ensureProfileDoc failed:', err); });
+    }
+
+    function saveProfile(skipped) {
+      const errEl = document.getElementById('auth-error');
+      if (!currentUser || !fbDb) { if (errEl) errEl.innerText = 'Not signed in.'; return; }
+      const company = skipped ? '' : (document.getElementById('profile-company') || {}).value || '';
+      const useCase = skipped ? 'skipped' : ((document.getElementById('profile-usecase') || {}).value || 'Other');
+      const data = {
+        email: currentUser.email || null,
+        displayName: currentUser.displayName || null,
+        photoURL: currentUser.photoURL || null,
+        company: company.trim(),
+        useCase: useCase,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastSeenAt: firebase.firestore.FieldValue.serverTimestamp(),
+        sessionId: guestSessionId || null
+      };
+      fbDb.collection('users').doc(currentUser.uid).set(data)
+        .then(() => {
+          profileStepOpen = false;
+          document.getElementById('auth-step-identity').style.display = 'block';
+          document.getElementById('auth-step-profile').style.display = 'none';
+          const modal = document.getElementById('auth-modal');
+          if (modal.classList.contains('active')) modal.classList.remove('active');
+          addAgentChatMessage(`Welcome, ${currentUser.displayName || currentUser.email}. Registration complete. You can now run simulations and brief the agent.`);
+        })
+        .catch(err => {
+          if (errEl) errEl.innerText = err.message;
+        });
+    }
+
+    // 2. Business Archetype Presets
+    const presets = {
+      fast_food: {
+        name: "Krave Gourmet Express",
+        type: "Fast Food & Corporate Catering",
+        offering: "Ultra-fast healthy gourmet bowls, grab-and-go express kiosks, and scheduled corporate team catering.",
+        customers: "Tech corporate HQs, VC funds, corporate law firms, Salesforce Tower, Stripe, Uber, and corporate teams with 50+ staff."
+      },
+      cleaning: {
+        name: "OmniClean Commercial Facilities",
+        type: "Commercial Office Cleaning & Facilities",
+        offering: "Nightly green janitorial services, sanitization audits, and eco-friendly consumable restocking.",
+        customers: "Property management firms, multi-tenant corporate towers, WeWork/co-working spaces, medical suites, and fintech offices."
+      },
+      agency: {
+        name: "Vanguard Creative & Growth Lab",
+        type: "Experiential Marketing & Creative Agency",
+        offering: "High-impact brand activations, executive pop-ups, viral offline street marketing, and B2B growth acquisition campaigns.",
+        customers: "Series B-D tech startups, consumer brands launching in SF, venture funds, crypto foundations, and AI labs."
+      },
+      b2b_saas: {
+        name: "Aether Cloud Infrastructure",
+        type: "Enterprise AI & GPU Compute Provider",
+        offering: "High-throughput AI inference cloud, dedicated GPU clusters, and on-prem enterprise briefing suites.",
+        customers: "Founders, VP Engineering, Chief AI Officers at OpenAI, Anthropic, Scale AI, and YC startups in SoMa/Mission."
+      }
+    };
+
+    function loadPreset(key) {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      const p = presets[key];
+      if (p) {
+        document.getElementById('company_name').value = p.name;
+        document.getElementById('business_type').value = p.type;
+        document.getElementById('offering').value = p.offering;
+        document.getElementById('sample_customers').value = p.customers;
+      }
+    }
+
+    // 3. Map State & Drop-Pin Engine
+    let map = null;
+    let targetCenter = { lat: 37.7895, lng: -122.3980 }; // Default SF
+    let scanRadius = 1500;
+    let centerMarker = null;
+    let radiusCircle = null;
+    let isDropPinMode = false;
+    
+    let buildingMarkers = [];
+    let touchpointMarkers = [];
+    let hotspotCircles = [];
+    let heatmapOverlayCircles = [];
+    let isSubmitting = false;
+
+    async function initMapEngine() {
+      // First attempt to load official Google Maps JavaScript API with loading=async
+      try {
+        const script = document.createElement('script');
+        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBRcLmel2XpWR-TXFeA2br6LBQGJZo5Ayc&libraries=places,geometry&callback=onGoogleMapsReady&loading=async`;
+        script.async = true;
+        script.onerror = () => {
+          console.warn("Google Maps script failed to load, falling back to Tactical Leaflet.");
+          initTacticalMap();
+        };
+        document.head.appendChild(script);
+
+        // If Google Maps doesn't trigger onGoogleMapsReady within 3.5s, fall back gracefully
+        setTimeout(() => {
+          if (!gmap && !map) {
+            console.log("Activating tactical map engine...");
+            initTacticalMap();
+          }
+        }, 3500);
+      } catch (e) {
+        console.warn("Error bootstrapping Google Maps, launching Tactical Leaflet engine:", e);
+        initTacticalMap();
+      }
+    }
+
+    let gmap = null;
+    let gmapCenterMarker = null;
+    let gmapRadiusCircle = null;
+    let gmapMarkers = [];
+    let gmapCircles = [];
+
+    window.onGoogleMapsReady = function() {
+      console.log("✓ Google Maps JavaScript API authorized & loaded successfully.");
+      const container = document.getElementById('map-surface');
+      if (map) {
+        // clean up leaflet if it was active
+        map.remove();
+        map = null;
+      }
+      container.innerHTML = '';
+
+      const tacticalStyles = [
+        { "elementType": "geometry", "stylers": [{ "color": "#181511" }] },
+        { "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
+        { "elementType": "labels.text.fill", "stylers": [{ "color": "#8c7e6c" }] },
+        { "elementType": "labels.text.stroke", "stylers": [{ "color": "#181511" }] },
+        { "featureType": "administrative", "elementType": "geometry", "stylers": [{ "color": "#383025" }] },
+        { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#221e18" }] },
+        { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#948570" }] },
+        { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0d131a" }] }
+      ];
+
+      gmap = new google.maps.Map(container, {
+        center: targetCenter,
+        zoom: 14,
+        styles: tacticalStyles,
+        disableDefaultUI: false,
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false
+      });
+
+      updateGoogleMapsCenter();
+
+      // NOTE: deliberately NO startup scan. Results may only exist after the
+      // operator explicitly launches one - nothing is pre-baked or demo-loaded.
+      gmap.addListener('click', (e) => {
+        if (isDropPinMode) {
+          // Moving the target pin only moves the ANCHOR. Existing result pins are
+          // anchored to real geography and must not move with it.
+          targetCenter = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+          updateGoogleMapsCenter();
+          toggleDropPinMode();
+          markResultsStale();
+        }
+      });
+    };
+
+    window.gm_authFailure = function() {
+      console.warn("Google Maps Auth Failure detected, switching to Tactical Dark Engine.");
+      if (!map) initTacticalMap();
+    };
+
+    function updateGoogleMapsCenter() {
+      if (!gmap) return;
+      if (gmapCenterMarker) gmapCenterMarker.setMap(null);
+      if (gmapRadiusCircle) gmapRadiusCircle.setMap(null);
+
+      gmapRadiusCircle = new google.maps.Circle({
+        strokeColor: '#4DEEEA',
+        strokeOpacity: 0.8,
+        strokeWeight: 1.5,
+        fillColor: '#4DEEEA',
+        fillOpacity: 0.08,
+        map: gmap,
+        center: targetCenter,
+        radius: scanRadius
+      });
+
+      gmapCenterMarker = new google.maps.Marker({
+        position: targetCenter,
+        map: gmap,
+        draggable: true,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: '#FFB84D',
+          fillOpacity: 1,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2
+        }
+      });
+
+      gmapCenterMarker.addListener('dragend', (e) => {
+        // Anchor moves; anchored result pins stay where they are.
+        targetCenter = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        updateGoogleMapsCenter();
+        markResultsStale();
+      });
+
+      document.getElementById('pin-coords').innerText = `Center: ${targetCenter.lat.toFixed(4)}, ${targetCenter.lng.toFixed(4)}`;
+    }
+
+    function updateCenterMarker() {
+      if (centerMarker) map.removeLayer(centerMarker);
+      if (radiusCircle) map.removeLayer(radiusCircle);
+
+      // Radial Scan Circle
+      radiusCircle = L.circle([targetCenter.lat, targetCenter.lng], {
+        radius: scanRadius,
+        color: '#4DEEEA',
+        weight: 1.5,
+        opacity: 0.6,
+        fillColor: '#4DEEEA',
+        fillOpacity: 0.08,
+        dashArray: '6, 6'
+      }).addTo(map);
+
+      // Draggable Center Pin
+      const pinIcon = L.divIcon({
+        className: 'custom-pin',
+        html: `<div style="width: 22px; height: 22px; background: #FFB84D; border: 3px solid #FFFFFF; border-radius: 50%; box-shadow: 0 0 16px rgba(255,184,77,0.8); cursor: grab;"></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      centerMarker = L.marker([targetCenter.lat, targetCenter.lng], {
+        icon: pinIcon,
+        draggable: true
+      }).addTo(map);
+
+      centerMarker.on('dragend', (e) => {
+        const pt = e.target.getLatLng();
+        targetCenter = { lat: pt.lat, lng: pt.lng };
+        updateCenterMarker();
+        markResultsStale();
+      });
+
+      document.getElementById('pin-coords').innerText = `Center: ${targetCenter.lat.toFixed(4)}, ${targetCenter.lng.toFixed(4)}`;
+    }
+
+    function updateRadius(val) {
+      scanRadius = parseInt(val);
+      document.getElementById('radius-val').innerText = `${scanRadius.toLocaleString()}m`;
+      if (gmapRadiusCircle) {
+        gmapRadiusCircle.setRadius(scanRadius);
+      }
+      if (radiusCircle) {
+        radiusCircle.setRadius(scanRadius);
+      }
+    }
+
+    function toggleDropPinMode() {
+      isDropPinMode = !isDropPinMode;
+      const btn = document.getElementById('drop-pin-btn');
+      const text = document.getElementById('pin-btn-text');
+      if (isDropPinMode) {
+        btn.classList.add('btn-active');
+        text.innerText = 'Click Map to Place Pin';
+        map.getContainer().style.cursor = 'crosshair';
+      } else {
+        btn.classList.remove('btn-active');
+        text.innerText = 'Drop Target Pin';
+        map.getContainer().style.cursor = '';
+      }
+    }
+
+    function locateUserPosition() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          targetCenter = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          if (map) map.setView([targetCenter.lat, targetCenter.lng], 14);
+          if (gmap) gmap.setCenter(targetCenter);
+          updateGoogleMapsCenter();
+          updateCenterMarkerIfLeaflet();
+          markResultsStale();
+        }, err => {
+          alert("Geolocation permission denied or unavailable.");
+        });
+      }
+    }
+
+    function toggleHeatmapOverlay() {
+      if (heatmapOverlayCircles.length === 0) return;
+      const isVisible = heatmapOverlayCircles[0]._map !== null;
+      heatmapOverlayCircles.forEach(c => {
+        if (isVisible) map.removeLayer(c);
+        else c.addTo(map);
+      });
+    }
+
+    // 4. Tab Switching
+    function switchRightTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(`tab-${tab}-btn`).classList.add('active');
+      document.getElementById('tab-telemetry').style.display = tab === 'telemetry' ? 'flex' : 'none';
+      document.getElementById('tab-chat').style.display = tab === 'chat' ? 'flex' : 'none';
+    }
+
+    // 5. Scan Execution Pipeline
+    // Results flow: browser -> Helix /api/simulations (same origin, table-backed)
+    // -> worker.py daemon executes the engine -> browser polls for its own task id.
+    // There is NO client-side result generator: if the worker cannot be reached,
+    // the UI reports failure instead of inventing pins.
+    let currentSimData = null;
+    let currentTaskId = null;
+    let resultsAreStale = false;
+
+    function markResultsStale() {
+      if (currentSimData) {
+        resultsAreStale = true;
+        document.getElementById('pipeline-status').innerText = 'ANCHOR MOVED — RESCAN';
+        document.getElementById('pipeline-status').style.color = 'var(--syndicate-gold)';
+      }
+    }
+
+    function setPipelineStatus(text, color) {
+      const el = document.getElementById('pipeline-status');
+      el.innerText = text;
+      el.style.color = color || 'var(--syndicate-radar-cyan)';
+    }
+
+    function updateCenterMarkerIfLeaflet() {
+      if (map) updateCenterMarker();
+    }
+
+    // Guarded DOM text setter - never throws on a missing node.
+    function setText(id, text) {
+      const el = document.getElementById(id);
+      if (el) el.innerText = text;
+    }
+
+    async function triggerSimulation() {
+      if (!currentUser && !guestModeAllowed) {
+        toggleAuthModal();
+        return;
+      }
+      if (isSubmitting) return;
+      isSubmitting = true;
+
+      const anchorLat = targetCenter.lat;
+      const anchorLng = targetCenter.lng;
+
+      const payload = {
+        company_name: document.getElementById('company_name').value,
+        business_type: document.getElementById('business_type').value,
+        offering: document.getElementById('offering').value,
+        target_city: 'Target Coordinates',
+        sample_customers: document.getElementById('sample_customers').value,
+        lat: anchorLat,
+        lng: anchorLng,
+        radius_meters: scanRadius
+      };
+
+      // The client owns the task id, so it can identify its OWN result and can
+      // never accidentally render a stale/pre-baked row.
+      const taskId = (crypto.randomUUID ? crypto.randomUUID() : ('t' + Date.now() + Math.random().toString(36).slice(2)));
+      currentTaskId = taskId;
+
+      setPipelineStatus('SUBMITTING...');
+      setText('tel-pain-summary', 'Queuing sector pain mining via Anakin Wire...');
+      setText('tel-ingest-summary', `Profile: ${payload.business_type || '-'}`);
+      document.getElementById('tel-step-2').classList.add('active');
+
+      try {
+        const createResp = await fetch('/api/simulations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: taskId,
+            user_id: currentUser ? currentUser.email : (guestSessionId || 'guest'),
+            company_name: payload.company_name || 'Unnamed',
+            payload: JSON.stringify(payload),
+            status: 'pending',
+            created_at: new Date().toISOString()
+          })
+        });
+        if (!createResp.ok) throw new Error('queue rejected the task (HTTP ' + createResp.status + ')');
+      } catch (err) {
+        isSubmitting = false;
+        document.getElementById('tel-step-2').classList.remove('active');
+        setPipelineStatus('QUEUE ERROR', '#FF6B6B');
+        setText('tel-pain-summary', 'Could not reach the scan queue. Nothing was computed.');
+        addAgentChatMessage('Scan could not be queued: ' + err.message + '. No results were generated.');
+        return;
+      }
+
+      setPipelineStatus('EXECUTING...');
+      const deadline = Date.now() + 180000;   // 3 minutes
+      let data = null;
+      let lastError = null;
+
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2500));
+        let rows = [];
+        try {
+          const listResp = await fetch('/api/simulations', { headers: { 'Accept': 'application/json' } });
+          if (!listResp.ok) continue;
+          const body = await listResp.json();
+          rows = Array.isArray(body) ? body : (body.data || []);
+        } catch (e) {
+          continue;   // transient; keep polling until the deadline
+        }
+
+        // Only OUR task id is ever considered. Several rows can share that
+        // status if more than one worker raced on the queue, so take the newest
+        // successful result and never let an empty/older one win.
+        const mine = rows
+          .filter(r => r && r.status === ('done:' + taskId))
+          .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+        for (const row of mine) {
+          if (!row.result) continue;
+          let parsed = null;
+          try {
+            parsed = JSON.parse(row.result);
+          } catch (e) {
+            continue;   // undecodable row - try the next one
+          }
+          if (!parsed) continue;
+          if (parsed.status === 'success') { data = parsed; break; }
+          if (!lastError) lastError = parsed;   // remember, keep waiting for a real result
+        }
+        if (data) break;
+      }
+
+      isSubmitting = false;
+      document.getElementById('tel-step-2').classList.remove('active');
+
+      if (!data) {
+        if (lastError) {
+          data = lastError;   // fall through to the explicit error handling below
+        } else {
+          setPipelineStatus('TIMED OUT', '#FF6B6B');
+          setText('tel-pain-summary', 'No result returned within 3 minutes.');
+          addAgentChatMessage('The scan timed out before the worker returned a result. No pins were drawn.');
+          return;
+        }
+      }
+
+      if (data.status === 'error' || data.error === 'anchor_required') {
+        const isEngine = data.error === 'engine_unavailable';
+        setPipelineStatus(isEngine ? 'ENGINE UNAVAILABLE' : 'ANCHOR REQUIRED', '#FF6B6B');
+        setText('tel-pain-summary', data.message || 'A target pin is required.');
+        addAgentChatMessage((isEngine ? 'Scan could not run: ' : 'Scan rejected: ') + (data.message || 'a target pin is required.'));
+        return;
+      }
+
+      // A result is only valid for the anchor it was computed around.
+      const ra = data.anchor || {};
+      if (Math.abs((ra.lat || 0) - anchorLat) > 1e-6 || Math.abs((ra.lng || 0) - anchorLng) > 1e-6) {
+        setPipelineStatus('ANCHOR MISMATCH', '#FF6B6B');
+        addAgentChatMessage('Discarded a result computed for a different anchor point.');
+        return;
+      }
+
+      currentSimData = data;
+      resultsAreStale = false;
+      renderSimulationOnMap(data);
+
+      const counts = data.counts || {};
+      const buildings = data.target_buildings || [];
+      const touchpoints = data.offline_touchpoints || [];
+      const hotspots = data.hotspot_recommendations || [];
+      const pain = (data.icp_intelligence && data.icp_intelligence.key_pain_points) || [];
+
+      setPipelineStatus('COMPLETED', 'var(--syndicate-radar-cyan)');
+      setText('tel-ingest-summary', `Profile locked: ${data.query.business_type || '-'} / r=${data.anchor_radius_meters}m`);
+      setText('tel-pain-summary', pain.length ? `Identified: ${pain[0].substring(0, 75)}...` : 'No sector pain signals returned.');
+      setText('tel-towers-summary', `Anchored ${counts.buildings != null ? counts.buildings : buildings.length} real Places sites within ${data.anchor_radius_meters}m.`);
+      setText('tel-touchpoints-summary', `Mapped ${counts.touchpoints != null ? counts.touchpoints : touchpoints.length} executive coffee, dining & transit touchpoints.`);
+      setText('tel-hotspot-summary', hotspots.length
+        ? `Top site: ${hotspots[0].name} (${hotspots[0].icp_density_score}% density, centroid-anchored).`
+        : 'No hotspot could be derived - no sites found in radius.');
+
+      addAgentChatMessage(
+        `Scan complete. ${buildings.length} real Places sites and ${hotspots.length} centroid-anchored hotspot(s) ` +
+        `mapped within ${data.anchor_radius_meters}m. Every pin is fixed to its own real coordinate - ` +
+        `moving the target pin will not shift them. Results id ${data.result_id ? data.result_id.slice(0, 8) : '-'}.`
+      );
+    }
+
+    function renderSimulationOnMap(data) {
+      if (gmap) {
+        renderGoogleMapsSimulation(data);
+      } else if (map) {
+        renderLeafletSimulation(data);
+      }
+    }
+
+    function renderGoogleMapsSimulation(data) {
+      // Clear previous layers
+      gmapMarkers.forEach(m => m.setMap(null));
+      gmapMarkers = [];
+      gmapCircles.forEach(c => c.setMap(null));
+      gmapCircles = [];
+
+      // 1. Render Buildings
+      (data.target_buildings || []).forEach(b => {
+        const marker = new google.maps.Marker({
+          position: { lat: b.lat, lng: b.lng },
+          map: gmap,
+          title: b.name,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: '#FFB84D',
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2
+          }
+        });
+
+        const info = new google.maps.InfoWindow({
+          content: `
+            <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 220px;">
+              <strong style="font-size: 13px; color: #855300;">🏢 ${b.name}</strong>
+              <div style="font-size: 11px; margin-top: 3px; color: #444;">${b.address}</div>
+              <div style="margin-top: 5px; font-size: 11px;"><strong>Decision Makers:</strong> ~${b.estimated_decision_makers}</div>
+              <div style="font-size: 10px; color: #2E7D32;">Match Score: ${b.target_sector_match}</div>
+            </div>
+          `
+        });
+        marker.addListener('click', () => info.open(gmap, marker));
+        gmapMarkers.push(marker);
+      });
+
+      // 2. Render Offline Touchpoints
+      (data.offline_touchpoints || []).forEach(tp => {
+        const marker = new google.maps.Marker({
+          position: { lat: tp.lat, lng: tp.lng },
+          map: gmap,
+          title: tp.name,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 5,
+            fillColor: '#4DEEEA',
+            fillOpacity: 0.9,
+            strokeColor: '#002B2A',
+            strokeWeight: 1.5
+          }
+        });
+
+        const info = new google.maps.InfoWindow({
+          content: `
+            <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 200px;">
+              <strong style="font-size: 12px; color: #00796B;">☕ ${tp.name}</strong>
+              <div style="font-size: 11px; color: #555;">${tp.vicinity}</div>
+              <div style="font-size: 10px; margin-top: 3px; color: #E65100;">Peak: ${tp.peak_hours}</div>
+            </div>
+          `
+        });
+        marker.addListener('click', () => info.open(gmap, marker));
+        gmapMarkers.push(marker);
+      });
+
+      // 3. Render Density Glow Overlay
+      (data.heatmap_data || []).forEach(pt => {
+        const glow = new google.maps.Circle({
+          center: { lat: pt.lat, lng: pt.lng },
+          radius: Math.min(350, Math.max(120, (pt.weight || 30) * 1.8)),
+          strokeColor: '#FFB84D',
+          strokeOpacity: 0.2,
+          strokeWeight: 1,
+          fillColor: '#FF9E0D',
+          fillOpacity: 0.12,
+          map: gmap,
+          clickable: false
+        });
+        gmapCircles.push(glow);
+      });
+
+      // 4. Render Recommended Hotspots
+      (data.hotspot_recommendations || []).forEach((hs, idx) => {
+        const ring = new google.maps.Circle({
+          center: hs.center,
+          radius: hs.catchment_radius_meters,
+          strokeColor: '#FFB84D',
+          strokeOpacity: 0.9,
+          strokeWeight: 2.5,
+          fillColor: '#FFB84D',
+          fillOpacity: 0.18,
+          map: gmap
+        });
+
+        const info = new google.maps.InfoWindow({
+          content: `
+            <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 240px;">
+              <div style="font-size: 10px; font-weight: 700; color: #C68000; text-transform: uppercase;">HOTSPOT #${idx+1} (${hs.icp_density_score}% Match)</div>
+              <strong style="font-size: 13px; color: #100E0B;">${hs.name}</strong>
+              <div style="font-size: 11px; color: #855300; margin: 2px 0;">${hs.recommended_outlet_type}</div>
+              <div style="font-size: 10px; color: #555; line-height: 1.3;">${hs.strategic_advantage}</div>
+              <div style="margin-top: 6px; font-size: 11px; border-top: 1px solid #ddd; padding-top: 4px;">
+                Est. daily footfall: <strong>${(hs.daily_footfall_estimate || 0).toLocaleString()}</strong>
+                <div style="font-size: 9px; color: #777;">centre = centroid of ${hs.buildings_covered} real sites</div>
+              </div>
+            </div>
+          `,
+          position: hs.center
+        });
+
+        ring.addListener('click', () => info.open(gmap));
+        gmapCircles.push(ring);
+      });
+    }
+
+    function renderLeafletSimulation(data) {
+      // Clear previous layers
+      buildingMarkers.forEach(m => map.removeLayer(m));
+      buildingMarkers = [];
+      touchpointMarkers.forEach(m => map.removeLayer(m));
+      touchpointMarkers = [];
+      hotspotCircles.forEach(c => map.removeLayer(c));
+      hotspotCircles = [];
+      heatmapOverlayCircles.forEach(c => map.removeLayer(c));
+      heatmapOverlayCircles = [];
+
+      // 1. Render Buildings (Sovereign Gold Markers)
+      (data.target_buildings || []).forEach(b => {
+        const marker = L.circleMarker([b.lat, b.lng], {
+          radius: 8,
+          fillColor: '#FFB84D',
+          color: '#FFFFFF',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.95
+        }).addTo(map);
+
+        marker.bindPopup(`
+          <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 220px;">
+            <strong style="font-size: 13px; color: #855300;">🏢 ${b.name}</strong>
+            <div style="font-size: 11px; margin-top: 3px; color: #444;">${b.address}</div>
+            <div style="margin-top: 5px; font-size: 11px;"><strong>Decision Makers:</strong> ~${b.estimated_decision_makers}</div>
+            <div style="font-size: 10px; color: #2E7D32;">Match Score: ${b.target_sector_match}</div>
+          </div>
+        `);
+        buildingMarkers.push(marker);
+      });
+
+      // 2. Render Offline Touchpoints (Cyan Markers)
+      (data.offline_touchpoints || []).forEach(tp => {
+        const marker = L.circleMarker([tp.lat, tp.lng], {
+          radius: 5,
+          fillColor: '#4DEEEA',
+          color: '#002B2A',
+          weight: 1.5,
+          opacity: 1,
+          fillOpacity: 0.9
+        }).addTo(map);
+
+        marker.bindPopup(`
+          <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 200px;">
+            <strong style="font-size: 12px; color: #00796B;">☕ ${tp.name}</strong>
+            <div style="font-size: 11px; color: #555;">${tp.vicinity}</div>
+            <div style="font-size: 10px; margin-top: 3px; color: #E65100;">Peak: ${tp.peak_hours}</div>
+          </div>
+        `);
+        touchpointMarkers.push(marker);
+      });
+
+      // 3. Render Density Glow Overlay
+      (data.heatmap_data || []).forEach(pt => {
+        const glow = L.circle([pt.lat, pt.lng], {
+          radius: Math.min(350, Math.max(120, (pt.weight || 30) * 1.8)),
+          color: '#FFB84D',
+          weight: 1,
+          opacity: 0.2,
+          fillColor: '#FF9E0D',
+          fillOpacity: 0.12
+        }).addTo(map);
+        heatmapOverlayCircles.push(glow);
+      });
+
+      // 4. Render Recommended Hotspots (Radial Rings)
+      (data.hotspot_recommendations || []).forEach((hs, idx) => {
+        const ring = L.circle([hs.center.lat, hs.center.lng], {
+          radius: hs.catchment_radius_meters,
+          color: '#FFB84D',
+          weight: 2.5,
+          opacity: 0.9,
+          fillColor: '#FFB84D',
+          fillOpacity: 0.18
+        }).addTo(map);
+
+        ring.bindPopup(`
+          <div style="color: #100E0B; padding: 4px; font-family: sans-serif; max-width: 240px;">
+            <div style="font-size: 10px; font-weight: 700; color: #C68000; text-transform: uppercase;">HOTSPOT #${idx+1} (${hs.icp_density_score}% Match)</div>
+            <strong style="font-size: 13px; color: #100E0B;">${hs.name}</strong>
+            <div style="font-size: 11px; color: #855300; margin: 2px 0;">${hs.recommended_outlet_type}</div>
+            <div style="font-size: 10px; color: #555; line-height: 1.3;">${hs.strategic_advantage}</div>
+            <div style="margin-top: 6px; font-size: 11px; border-top: 1px solid #ddd; padding-top: 4px;">
+              Est. daily footfall: <strong>${(hs.daily_footfall_estimate || 0).toLocaleString()}</strong>
+              <div style="font-size: 9px; color: #777;">centre = centroid of ${hs.buildings_covered} real sites</div>
+            </div>
+          </div>
+        `);
+        hotspotCircles.push(ring);
+      });
+    }
+
+    // 6. Interactive Mastra Agent Chat
+    async function sendChatMessage() {
+      if (!currentUser && !guestModeAllowed) {
+        toggleAuthModal();
+        return;
+      }
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+
+      // Append user bubble
+      appendChatBubble(text, 'user');
+
+      // 1) Try the local Mastra reasoning service when it is reachable.
+      try {
+        const resp = await fetch('http://127.0.0.1:8090/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            context: currentSimData ? currentSimData.query : {},
+            user_id: currentUser ? currentUser.email : (guestSessionId || 'guest')
+          })
+        });
+        if (resp.ok) {
+          const res = await resp.json();
+          appendChatBubble(res.reply, 'agent');
+          return;
+        }
+      } catch (e) {
+        // Local service unreachable from a hosted browser - fall through to a
+        // reply grounded strictly in the real result already on screen.
+      }
+
+      // 2) No result yet: say so plainly rather than inventing an analysis.
+      if (!currentSimData) {
+        appendChatBubble('No scan has been run yet in this session, so I have no mapped data to reason over. Set your business profile, drop a target pin, then launch the scan.', 'agent');
+        return;
+      }
+
+      // 3) Answer from the REAL computed result on screen.
+      const d = currentSimData;
+      const hs = d.hotspot_recommendations || [];
+      const bld = d.target_buildings || [];
+      const tp = d.offline_touchpoints || [];
+      const pain = (d.icp_intelligence && d.icp_intelligence.key_pain_points) || [];
+      const q = text.toLowerCase();
+
+      let reply;
+      if (/why|reason|hotspot|site/.test(q) && hs.length) {
+        const h = hs[0];
+        reply = `Top-ranked site is ${h.name} (${h.icp_density_score}% density). Its centre is the centroid of ${h.buildings_covered} real Google Places sites within ${h.catchment_radius_meters}m${h.anchor_buildings && h.anchor_buildings.length ? ', anchored on ' + h.anchor_buildings[0].name : ''}. Because the centre is a mean of real coordinates, it stays fixed even if you move the target pin.`;
+      } else if (/radius|distance|spread/.test(q)) {
+        reply = `This scan used a ${d.anchor_radius_meters}m radius around ${d.anchor.lat.toFixed(4)}, ${d.anchor.lng.toFixed(4)}, returning ${bld.length} real sites${bld.length ? ` (nearest ${bld[0].name} at ${bld[0].distance_meters}m)` : ''} and ${hs.length} hotspot(s).`;
+      } else if (/pain|problem|complaint/.test(q) && pain.length) {
+        reply = `Sector pain signals for this run: ${pain.slice(0, 2).join('; ')}.`;
+      } else if (/touchpoint|cafe|lunch|transit/.test(q)) {
+        reply = `I mapped ${tp.length} offline touchpoint(s) around the strongest buildings${tp.length ? ', nearest being ' + tp[0].name : ''}.`;
+      } else {
+        reply = `Current run: ${bld.length} anchored sites, ${tp.length} touchpoints, ${hs.length} hotspot(s) within ${d.anchor_radius_meters}m. ${hs.length ? 'Top site: ' + hs[0].name + '.' : ''} Ask me why a site ranked where it did, or about the radius or the pain signals.`;
+      }
+      appendChatBubble(reply, 'agent');
+    }
+
+    function appendChatBubble(text, sender) {
+      const box = document.getElementById('chat-messages');
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${sender === 'user' ? 'bubble-user' : 'bubble-agent'}`;
+      bubble.innerHTML = sender === 'agent' ? `<strong>Mastra King Maker Agent</strong><br>${text}` : text;
+      box.appendChild(bubble);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function addAgentChatMessage(text) {
+      appendChatBubble(text, 'agent');
+    }
+
+    function handleChatKey(e) {
+      if (e.key === 'Enter') sendChatMessage();
+    }
+
+    // NOTE: there is deliberately NO client-side result generator here.
+    // It previously synthesised towers/hotspots at lat±offset around the target
+    // pin, which made every result pin track the anchor and rendered fabricated
+    // data as if it were a real scan. Results now come only from the queue worker.
+
+    // Startup
+    window.addEventListener('DOMContentLoaded', () => {
+      initMapEngine();
+    });
+  </script>
+
+</body>
+</html>
