@@ -187,6 +187,10 @@ bridge to be running.
 
 ## Operational notes
 
+- **Complete profile required.** A scan needs all four business profile fields (company name,
+  business type, offering, target customer criteria). The launch control stays disabled until
+  they are filled and the interface lists what is still outstanding; the scan is refused at the
+  API boundary too, so the constraint cannot be bypassed. A Clear control empties the profile.
 - **Live progress.** A scan reports a labelled action per stage and sub-step (each search, each
   thread read, each Places query, each site's touchpoint mapping), and the agent reports each
   tool call with its arguments as it makes them. Both streams are published as their own queue

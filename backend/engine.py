@@ -819,6 +819,40 @@ class SyndicateGraphEngine:
 
         raw_lat = payload.get("lat")
         raw_lng = payload.get("lng")
+
+        # Required business profile. Enforced here as well as in the client so the
+        # constraint holds for any caller, not just the UI.
+        required_profile = [
+            ("company_name", "Company Name"),
+            ("business_type", "Business / Industry Type"),
+            ("offering", "Core Offering & Value Proposition"),
+            ("sample_customers", "Target Customer Criteria / Anchor Accounts"),
+        ]
+        missing_profile = [label for key, label in required_profile
+                           if not str(payload.get(key) or "").strip()]
+        if missing_profile:
+            print(f"✗ Research run rejected: incomplete profile (missing {missing_profile})")
+            emit(f"Scan rejected · incomplete profile: {', '.join(missing_profile)}")
+            return {
+                "status": "error",
+                "error": "profile_incomplete",
+                "message": "A scan requires a complete business profile. Still empty: "
+                           + ", ".join(missing_profile) + ".",
+                "query": {
+                    "company_name": company_name,
+                    "business_type": business_type,
+                    "offering": offering,
+                    "target_city": target_city,
+                    "sample_customers": sample_customers,
+                },
+                "icp_intelligence": {},
+                "target_buildings": [],
+                "offline_touchpoints": [],
+                "hotspot_recommendations": [],
+                "heatmap_data": [],
+                "anchor": None,
+            }
+
         if raw_lat is None or raw_lng is None:
             # No anchor => no scan. Never invent a location.
             print("✗ Research run rejected: no anchor coordinates supplied.")

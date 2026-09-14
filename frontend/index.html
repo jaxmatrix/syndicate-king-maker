@@ -1510,9 +1510,14 @@
 
       if (data.status === 'error' || data.error === 'anchor_required') {
         const isEngine = data.error === 'engine_unavailable';
-        setPipelineStatus(isEngine ? 'ENGINE UNAVAILABLE' : 'ANCHOR REQUIRED', '#FF6B6B');
+        const isProfile = data.error === 'profile_incomplete';
+        setPipelineStatus(
+          isEngine ? 'ENGINE UNAVAILABLE' : (isProfile ? 'PROFILE INCOMPLETE' : 'ANCHOR REQUIRED'),
+          '#FF6B6B'
+        );
         setText('tel-pain-summary', data.message || 'A target pin is required.');
-        setActivity((isEngine ? 'Engine unavailable — ' : 'Scan rejected — ') + (data.message || 'a target pin is required.'), false);
+        setActivity((isEngine ? 'Engine unavailable — ' : (isProfile ? 'Scan blocked — ' : 'Scan rejected — '))
+          + (data.message || 'a target pin is required.'), false);
         addAgentChatMessage((isEngine ? 'Scan could not run: ' : 'Scan rejected: ') + (data.message || 'a target pin is required.'));
         return;
       }
