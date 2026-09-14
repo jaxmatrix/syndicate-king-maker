@@ -11,7 +11,7 @@ class TestSyndicateEndpoints(unittest.TestCase):
             self.assertEqual(data.get("status"), "online")
             self.assertTrue(data.get("anakin_active"))
 
-    def test_02_global_simulation(self):
+    def test_02_global_research(self):
         payload = {
             "company_name": "Test Enterprise",
             "business_type": "Commercial Facilities",

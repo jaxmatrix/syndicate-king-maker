@@ -607,7 +607,7 @@ class SyndicateGraphEngine:
         print(f"✓ Anchored {len(buildings)} real Places buildings within {radius}m of {lat},{lng}")
         return buildings
 
-    # Node 3: Offline Social Engineering & Touchpoint Simulation
+    # Node 3: Offline Executive Touchpoint Mapping
     def find_touchpoints_for_building(self, lat: float, lng: float, radius: int = 500) -> Dict[str, List[Dict[str, Any]]]:
         """
         Locates executive cafes, popular business lunch spots, and transit/taxi hubs
