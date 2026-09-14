@@ -11,6 +11,11 @@
  */
 import * as dotenv from 'dotenv';
 
+// App-specific secrets FIRST (they must win for Syndicate), then the shared
+// files as fallback. dotenv does not override already-set keys, so this order
+// means Syndicate uses its own OPENROUTER_API_KEY without affecting the Allr
+// agent's own key in the shared profile env.
+dotenv.config({ path: '/opt/data/syndicate/.env' });
 dotenv.config({ path: '/opt/data/profiles/accelerator/.env' });
 dotenv.config({ path: '/opt/data/.env' });
 dotenv.config(); // local .env, if any

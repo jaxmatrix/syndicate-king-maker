@@ -18,6 +18,7 @@ _deploy.zip
 *.zip
 dist/
 build/
+_commitmsg.txt
 
 # Node
 node_modules/
@@ -31,6 +32,7 @@ mastra/chat_bridge.log
 # Secrets / local env
 .env
 .env.*
+!.env.example
 
 # OS / editor
 .DS_Store

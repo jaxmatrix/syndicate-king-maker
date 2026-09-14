@@ -43,7 +43,12 @@ def _load_env_file(path: str) -> None:
         pass
 
 
+# App-specific secrets FIRST so they win for Syndicate only. _load_env_file never
+# overwrites an already-set key, so listing the app .env before the shared one
+# means Syndicate uses its own OPENROUTER_API_KEY while the shared profile .env
+# (and therefore the Allr agent itself) stays untouched.
 for _env_path in (
+    '/opt/data/syndicate/.env',
     '/opt/data/profiles/accelerator/.env',
     '/opt/data/.env',
 ):

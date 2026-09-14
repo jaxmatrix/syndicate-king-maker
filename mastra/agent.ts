@@ -26,7 +26,7 @@ export const MODEL_ID = process.env.SYNDICATE_LLM_MODEL ?? 'deepseek/deepseek-v4
 
 export const syndicateKingMakerAgent = new Agent({
   id: 'syndicate-king-maker',
-  name: 'Syndicate King Maker',
+  name: 'King Maker',
   instructions: `
 You are the chief commercial expansion and site-selection research agent for Syndicate.
 

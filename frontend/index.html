@@ -583,7 +583,7 @@
         </button>
         <button class="tab-btn" id="tab-chat-btn" onclick="switchRightTab('chat')">
           <span class="material-symbols-outlined" style="font-size: 16px;">smart_toy</span>
-          Mastra Agent Chat
+          King Maker Chat
         </button>
       </div>
 
@@ -672,7 +672,7 @@
       <div id="tab-chat" class="tab-content chat-container" style="display: none;">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-bubble bubble-agent">
-            <strong>Mastra King Maker Agent</strong><br>
+            <strong>King Maker</strong><br>
             I research live. Ask me to find customers, scan another area, or dig into a source — I'll call Google Maps and Anakin tools and show you what I actually found.
           </div>
         </div>
@@ -751,7 +751,7 @@
   <script>
     // 1. Firebase Initialization & Auth State
     const firebaseConfig = {
-      apiKey: "AIzaSyAlk7oBfkTUIA8NUW7UKW1W-UbEfNBh2dY",
+      apiKey: "__FIREBASE_API_KEY__",
       authDomain: "intelligence-8c622.firebaseapp.com",
       projectId: "intelligence-8c622",
       storageBucket: "intelligence-8c622.firebasestorage.app",
@@ -955,7 +955,7 @@
       // First attempt to load official Google Maps JavaScript API with loading=async
       try {
         const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBRcLmel2XpWR-TXFeA2br6LBQGJZo5Ayc&libraries=places,geometry&callback=onGoogleMapsReady&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=__GOOGLE_MAPS_API_KEY__&libraries=places,geometry&callback=onGoogleMapsReady&loading=async`;
         script.async = true;
         script.onerror = () => {
           console.warn("Google Maps script failed to load, falling back to Tactical Leaflet.");
@@ -1747,7 +1747,7 @@
       const box = document.getElementById('chat-messages');
       const bubble = document.createElement('div');
       bubble.className = `chat-bubble ${sender === 'user' ? 'bubble-user' : 'bubble-agent'}`;
-      bubble.innerHTML = sender === 'agent' ? `<strong>Mastra King Maker Agent</strong><br>${text}` : text;
+      bubble.innerHTML = sender === 'agent' ? `<strong>King Maker</strong><br>${text}` : text;
       box.appendChild(bubble);
       box.scrollTop = box.scrollHeight;
     }
