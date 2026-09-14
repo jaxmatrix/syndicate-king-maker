@@ -174,7 +174,8 @@ class SyndicateGraphEngine:
         return self._condense_thread_markdown(md)
 
     def collect_evidence(self, business_type: str, offering: str,
-                         sample_customers: str, max_items: int = 14) -> Dict[str, Any]:
+                         sample_customers: str, max_items: int = 14,
+                         progress=None) -> Dict[str, Any]:
         """
         Retrieve real, citable evidence about the sector from the live web and
         from Reddit, and return it as a numbered evidence set.
@@ -182,7 +183,19 @@ class SyndicateGraphEngine:
         Every item carries the URL it came from. Downstream reasoning is allowed
         to cite ONLY these items, which is what makes the final result auditable.
         A failed call degrades to fewer items - it never invents one.
+
+        `progress` receives a short label per sub-step so a caller can show the
+        user that work is happening during this otherwise long silent stage.
         """
+
+        def note(label: str) -> None:
+            if progress is None:
+                return
+            try:
+                progress(label)
+            except Exception:
+                pass
+
         queries = [
             f"{business_type} {offering} problems complaints reddit".strip(),
             f"{business_type} vendor complaints pricing reddit".strip(),
@@ -193,7 +206,8 @@ class SyndicateGraphEngine:
         search_items: List[Dict[str, Any]] = []
 
         # --- Phase 1: search, to discover both snippets and real subreddits ---
-        for q in queries:
+        for qi, q in enumerate(queries, start=1):
+            note(f"N1 · Search {qi}/{len(queries)}: {q[:70]}")
             try:
                 res = self.anakin.search(q, limit=5)
             except Exception as e:
@@ -223,15 +237,17 @@ class SyndicateGraphEngine:
         # primary source and the hot-listing below is only a fallback.
         reddit_items: List[Dict[str, Any]] = []
         seen_threads = set()
-        for item in search_items:
+        thread_candidates = [i for i in search_items
+                             if "reddit.com/r/" in i["url"] and "/comments/" in i["url"]]
+        note(f"N1 · {len(search_items)} search hits, {len(thread_candidates)} reddit threads to read")
+        for ti, item in enumerate(thread_candidates, start=1):
             if len(reddit_items) >= 4:
                 break
             url = item["url"]
-            if "reddit.com/r/" not in url or "/comments/" not in url:
-                continue
             if url in seen_threads:
                 continue
             seen_threads.add(url)
+            note(f"N1 · Reading thread {ti}/{min(len(thread_candidates), 4)}: {url[:78]}")
             body = self._fetch_thread_body(url)
             if not body:
                 continue
@@ -288,7 +304,8 @@ class SyndicateGraphEngine:
     def collect_demand_signals(self, business_type: str, offering: str,
                                area_label: str = "",
                                icp_titles: Optional[List[str]] = None,
-                               max_items: int = 4) -> List[Dict[str, Any]]:
+                               max_items: int = 4,
+                               progress=None) -> List[Dict[str, Any]]:
         """
         Retrieve real hiring / expansion / new-location signals for the sector and
         the ICP roles, each carrying the URL it came from.
@@ -308,7 +325,12 @@ class SyndicateGraphEngine:
 
         signals: List[Dict[str, Any]] = []
         seen_urls = set()
-        for q in queries:
+        for si, q in enumerate(queries, start=1):
+            if progress:
+                try:
+                    progress(f"N3 · Signal search {si}/{len(queries)}: {q[:70]}")
+                except Exception:
+                    pass
             try:
                 res = self.anakin.search(q, limit=4)
             except Exception as e:
@@ -439,7 +461,8 @@ class SyndicateGraphEngine:
     # Node 1: ICP Intelligence (N1 retrieval -> N2 extraction, both real)
     def run_icp_problem_mining(self, business_type: str, offering: str,
                                target_customers: str,
-                               company_name: str = "") -> Dict[str, Any]:
+                               company_name: str = "",
+                               progress=None) -> Dict[str, Any]:
         """
         Compose the real research nodes: retrieve citable evidence (N1), then
         extract ICP intelligence from that evidence only (N2).
@@ -452,8 +475,15 @@ class SyndicateGraphEngine:
             business_type=business_type,
             offering=offering,
             sample_customers=target_customers,
+            progress=progress,
         )
         evidence = retrieval["evidence"]
+
+        if progress:
+            try:
+                progress(f"N2 · Extracting ICP intelligence from {len(evidence)} evidence items…")
+            except Exception:
+                pass
 
         extraction = self.run_icp_extraction(
             evidence=evidence,
@@ -530,7 +560,7 @@ class SyndicateGraphEngine:
 
     def find_target_buildings(self, lat: float, lng: float, radius_meters: int,
                               business_type: str, sample_customers: str,
-                              city: str = "") -> List[Dict[str, Any]]:
+                              city: str = "", progress=None) -> List[Dict[str, Any]]:
         """
         Coordinate-anchored commercial building discovery.
 
@@ -566,7 +596,12 @@ class SyndicateGraphEngine:
             keywords = ["office building", "office tower", "business park", "coworking space"]
 
         found: Dict[str, Dict[str, Any]] = {}
-        for kw in keywords:
+        for ki, kw in enumerate(keywords, start=1):
+            if progress:
+                try:
+                    progress(f"N4 · Places query {ki}/{len(keywords)}: {kw}")
+                except Exception:
+                    pass
             url = (
                 "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
                 f"?location={lat},{lng}&radius={radius}"
@@ -816,7 +851,8 @@ class SyndicateGraphEngine:
         # Step 1: ICP intelligence - real evidence retrieval + grounded extraction
         emit("N1 · Retrieving citable evidence from the web and Reddit…")
         icp_insights = self.run_icp_problem_mining(
-            business_type, offering, sample_customers, company_name=company_name
+            business_type, offering, sample_customers,
+            company_name=company_name, progress=emit
         )
         ev_counts = icp_insights.get("evidence_counts") or {}
         subs = icp_insights.get("subreddits") or []
@@ -843,6 +879,7 @@ class SyndicateGraphEngine:
             offering=offering,
             area_label=target_city if target_city and target_city != "Target Coordinates" else "",
             icp_titles=icp_insights.get("derived_icp_titles") or [],
+            progress=emit,
         )
         emit(f"N3 · Demand signals: {len(demand_signals)} url-backed finding(s)")
 
@@ -855,7 +892,8 @@ class SyndicateGraphEngine:
                 radius_meters=scan_radius,
                 business_type=business_type,
                 sample_customers=sample_customers,
-                city=target_city
+                city=target_city,
+                progress=emit
             )
         except RuntimeError as exc:
             # Misconfiguration must surface as an error, never as a scan that
@@ -888,7 +926,8 @@ class SyndicateGraphEngine:
         # Step 3: Offline touchpoints around the strongest discovered buildings
         emit("N5 · Mapping dining, coffee and transit touchpoints…")
         all_touchpoints = []
-        for b in buildings[:4]:
+        for bi, b in enumerate(buildings[:4], start=1):
+            emit(f"N5 · Mapping touchpoints around site {bi}/{min(len(buildings), 4)}: {b['name']}")
             tps = self.find_touchpoints_for_building(b["lat"], b["lng"], radius=450)
             for cat, items in tps.items():
                 for itm in items:

@@ -21,6 +21,7 @@ commercial presence — with every conclusion traceable to a source.
 | Touchpoint mapping | Maps cafes, dining and transit points around the strongest sites |
 | Hotspot scoring | Ranks clusters of real sites by decision-maker density and recommends outlet placement |
 | Conversational research | An interactive agent that runs further research on request, using the same live data sources |
+| Live action log | Every pipeline stage and every agent tool call is reported in the chat as it happens, with a global activity indicator and elapsed timer |
 
 ## How it works
 
@@ -186,8 +187,17 @@ bridge to be running.
 
 ## Operational notes
 
-- **Scan duration.** A full scan typically takes one to four minutes. Evidence retrieval dominates:
-  the Anakin client starts a separate MCP subprocess per tool call, and a scan makes several.
+- **Live progress.** A scan reports a labelled action per stage and sub-step (each search, each
+  thread read, each Places query, each site's touchpoint mapping), and the agent reports each
+  tool call with its arguments as it makes them. Both streams are published as their own queue
+  records and rendered into the chat in order, so a long operation is always legible rather than
+  appearing stalled.
+- **Client timeouts.** Scans and agent turns are both polled for up to 20 minutes. Work continues
+  server-side regardless.
+- **Agent reply formatting.** Agent replies render as full-width markdown (tables, lists, code,
+  links); HTML in the source is escaped before rendering so model output cannot inject markup.
+- **Scan duration.** A full scan typically takes under a minute to a few minutes. Evidence
+  retrieval dominates, and the Anakin client starts a separate MCP subprocess per tool call.
   Reusing a single long-lived MCP process would reduce both latency and process overhead.
 - **Queue records.** Completion is published as a new record rather than mutating the original, so
   original pending records persist. Consumers therefore only claim requests newer than

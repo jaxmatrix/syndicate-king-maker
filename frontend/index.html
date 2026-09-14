@@ -16,6 +16,8 @@
   <!-- Tactical Map Engines (Leaflet Dark Matter + Google Maps SDK Bridge) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Markdown rendering for agent replies in the chat window -->
+  <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
 
   <!-- Firebase Auth SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -393,6 +395,50 @@
       align-self: flex-start;
       border-top-left-radius: 2px;
     }
+    /* Agent replies render as full-width prose, not a boxed bubble. */
+    .chat-agent-text {
+      max-width: 100%;
+      width: 100%;
+      align-self: stretch;
+      font-size: 0.825rem;
+      line-height: 1.55;
+      color: var(--text-main);
+      word-break: break-word;
+    }
+    .chat-agent-text > *:first-child { margin-top: 0; }
+    .chat-agent-text > *:last-child { margin-bottom: 0; }
+    .chat-agent-text p { margin: 0 0 8px 0; }
+    .chat-agent-text h1, .chat-agent-text h2, .chat-agent-text h3, .chat-agent-text h4 {
+      font-size: 0.86rem; margin: 12px 0 6px 0; color: var(--syndicate-radar-cyan); font-weight: 700;
+    }
+    .chat-agent-text ul, .chat-agent-text ol { margin: 0 0 8px 0; padding-left: 18px; }
+    .chat-agent-text li { margin: 2px 0; }
+    .chat-agent-text strong { color: #fff; font-weight: 700; }
+    .chat-agent-text em { color: var(--text-muted); }
+    .chat-agent-text a { color: var(--syndicate-radar-cyan); text-decoration: underline; word-break: break-all; }
+    .chat-agent-text code {
+      background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem;
+    }
+    .chat-agent-text pre {
+      background: rgba(0,0,0,0.35); padding: 8px 10px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid var(--border-bright); margin: 0 0 8px 0;
+    }
+    .chat-agent-text pre code { background: none; padding: 0; }
+    .chat-agent-text table {
+      width: 100%; border-collapse: collapse; margin: 0 0 10px 0; font-size: 0.74rem;
+      display: block; overflow-x: auto;
+    }
+    .chat-agent-text th, .chat-agent-text td {
+      border: 1px solid var(--border-bright); padding: 4px 6px; text-align: left; vertical-align: top;
+      /* Let wide tables scroll horizontally rather than wrapping mid-word. */
+      white-space: nowrap;
+    }
+    .chat-agent-text th { background: rgba(255,255,255,0.06); color: var(--syndicate-radar-cyan); font-weight: 700; }
+    .chat-agent-text hr { border: none; border-top: 1px solid var(--border-bright); margin: 10px 0; }
+    .chat-agent-text blockquote {
+      border-left: 2px solid var(--syndicate-radar-cyan); margin: 0 0 8px 0; padding-left: 10px; color: var(--text-muted);
+    }
     .bubble-user {
       background: linear-gradient(135deg, #FFB84D, #E69500);
       color: #100E0B;
@@ -446,6 +492,17 @@
   </style>
 </head>
 <body>
+
+  <!-- Global activity indicator: always visible so the user keeps a sense of
+       activity even when the chat tab is not open. -->
+  <div id="activity-bar" style="position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 9999; display: none; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 999px; background: rgba(10,12,20,0.92); border: 1px solid var(--syndicate-radar-cyan); box-shadow: 0 6px 24px rgba(0,0,0,0.45); font-size: 0.74rem; color: #e8eef7; max-width: min(780px, 92vw);">
+    <span id="activity-dot" style="width: 9px; height: 9px; border-radius: 50%; background: var(--syndicate-radar-cyan); flex: 0 0 auto; animation: activityPulse 1s ease-in-out infinite;"></span>
+    <span id="activity-label" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Working…</span>
+    <span id="activity-timer" style="color: var(--syndicate-radar-cyan); font-variant-numeric: tabular-nums; flex: 0 0 auto;">0s</span>
+  </div>
+  <style>
+    @keyframes activityPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.75); } }
+  </style>
 
   <!-- Top Navigation Bar -->
   <header class="navbar">
@@ -672,9 +729,8 @@
       <!-- Tab 2: Interactive Agent Chat View -->
       <div id="tab-chat" class="tab-content chat-container" style="display: none;">
         <div class="chat-messages" id="chat-messages">
-          <div class="chat-bubble bubble-agent">
-            <strong>King Maker</strong><br>
-            I research live. Ask me to find customers, scan another area, or dig into a source — I'll call Google Maps and Anakin tools and show you what I actually found.
+          <div class="chat-agent-text">
+            <p><strong>King Maker</strong> — I research live. Ask me to find customers, scan another area, or dig into a source; I'll call the Google Maps and Anakin tools and report exactly what I found, with sources.</p>
           </div>
         </div>
 
@@ -1204,6 +1260,44 @@
       if (el) el.innerText = text;
     }
 
+    // ---- Global activity indicator -------------------------------------------
+    // Shown while any long operation runs (scan or agent turn), regardless of
+    // which tab is open, with a running elapsed timer so the user can see that
+    // work is ongoing rather than guessing from a static screen.
+    let activityStartedAt = null;
+    let activityTimer = null;
+
+    function setActivity(label, busy) {
+      const bar = document.getElementById('activity-bar');
+      const lab = document.getElementById('activity-label');
+      const timer = document.getElementById('activity-timer');
+      const dot = document.getElementById('activity-dot');
+      if (!bar) return;
+
+      if (busy) {
+        if (!activityStartedAt) activityStartedAt = Date.now();
+        bar.style.display = 'flex';
+        if (lab) lab.innerText = label || 'Working…';
+        if (dot) { dot.style.background = 'var(--syndicate-radar-cyan)'; dot.style.animation = 'activityPulse 1s ease-in-out infinite'; }
+        if (!activityTimer) {
+          activityTimer = setInterval(() => {
+            const t = document.getElementById('activity-timer');
+            if (t && activityStartedAt) t.innerText = Math.round((Date.now() - activityStartedAt) / 1000) + 's';
+          }, 500);
+        }
+      } else {
+        // Keep the final label visible briefly as a completion confirmation.
+        if (lab && label) lab.innerText = label;
+        if (dot) { dot.style.animation = 'none'; dot.style.background = label ? '#4ade80' : 'var(--text-muted)'; }
+        if (activityTimer) { clearInterval(activityTimer); activityTimer = null; }
+        setTimeout(() => {
+          const b = document.getElementById('activity-bar');
+          if (b && !activityTimer) b.style.display = 'none';
+          activityStartedAt = null;
+        }, label ? 4000 : 0);
+      }
+    }
+
     async function runResearchScan() {
       if (!currentUser && !guestModeAllowed) {
         toggleAuthModal();
@@ -1232,6 +1326,8 @@
       currentTaskId = taskId;
 
       setPipelineStatus('SUBMITTING...');
+      setActivity('Submitting scan to the research queue…', true);
+      setText('tel-pipeline-log', 'Submitting scan to the research queue…');
       setText('tel-pain-summary', 'Retrieving citable sector evidence from the live web and Reddit...');
       setText('tel-icp-summary', 'Extraction runs once evidence is retrieved.');
       setText('tel-demand-summary', 'Checking for real hiring/expansion signals...');
@@ -1263,9 +1359,9 @@
 
       setPipelineStatus('EXECUTING...');
       // A real scan does evidence retrieval + extraction + Places calls and
-      // typically takes 1-4 minutes, so the previous 3-minute ceiling cut off
-      // legitimate runs. 10 minutes with a live action log.
-      const deadline = Date.now() + 600000;   // 10 minutes
+      // typically takes 1-4 minutes, but may chain far longer; allow 20 minutes
+      // with a live action log so the wait is always legible.
+      const deadline = Date.now() + 1200000;   // 20 minutes
       let data = null;
       let lastError = null;
       const seenProgress = new Set();
@@ -1291,6 +1387,7 @@
           seenProgress.add(a.result);
           appendChatBubble('· ' + a.result, 'agent');
           setText('tel-pipeline-log', a.result);
+          setActivity(a.result, true);   // global indicator, visible on any tab
         }
 
         // Only OUR task id is ever considered. Several rows can share that
@@ -1323,7 +1420,8 @@
           data = lastError;   // fall through to the explicit error handling below
         } else {
           setPipelineStatus('TIMED OUT', '#FF6B6B');
-          setText('tel-pain-summary', 'No result returned within 3 minutes.');
+          setText('tel-pain-summary', 'No result returned within 20 minutes.');
+          setActivity('Scan timed out — no result returned', false);
           addAgentChatMessage('The scan timed out before the worker returned a result. No pins were drawn.');
           return;
         }
@@ -1333,6 +1431,7 @@
         const isEngine = data.error === 'engine_unavailable';
         setPipelineStatus(isEngine ? 'ENGINE UNAVAILABLE' : 'ANCHOR REQUIRED', '#FF6B6B');
         setText('tel-pain-summary', data.message || 'A target pin is required.');
+        setActivity((isEngine ? 'Engine unavailable — ' : 'Scan rejected — ') + (data.message || 'a target pin is required.'), false);
         addAgentChatMessage((isEngine ? 'Scan could not run: ' : 'Scan rejected: ') + (data.message || 'a target pin is required.'));
         return;
       }
@@ -1341,6 +1440,7 @@
       const ra = data.anchor || {};
       if (Math.abs((ra.lat || 0) - anchorLat) > 1e-6 || Math.abs((ra.lng || 0) - anchorLng) > 1e-6) {
         setPipelineStatus('ANCHOR MISMATCH', '#FF6B6B');
+        setActivity('Discarded a result computed for a different anchor', false);
         addAgentChatMessage('Discarded a result computed for a different anchor point.');
         return;
       }
@@ -1362,6 +1462,8 @@
       const grounding = data.grounding || {};
 
       setPipelineStatus('COMPLETED', 'var(--syndicate-radar-cyan)');
+      setActivity(`Scan complete · ${counts.buildings != null ? counts.buildings : buildings.length} sites, `
+        + `${hotspots.length} hotspot(s) — ${Math.round((Date.now() - (activityStartedAt || Date.now())) / 1000)}s`, false);
       setText('tel-ingest-summary', `Profile locked: ${data.query.business_type || '-'} / r=${data.anchor_radius_meters}m`);
 
       // Step 2: real retrieved evidence + the top CITED pain point with its source.
@@ -1667,7 +1769,8 @@
       // browser cannot reach a localhost port, so we post a pending row and poll
       // for our own reply id - same pattern as the research runs.
       appendChatBubble('Researching…', 'agent');
-      const thinking = document.querySelector('#chat-messages .chat-bubble:last-child');
+      setActivity('Asking the research agent…', true);
+      const thinking = document.querySelector('#chat-messages > *:last-child');
       const chatId = (crypto.randomUUID ? crypto.randomUUID() : ('c' + Date.now()));
 
       const scanContext = currentSimData ? {
@@ -1695,14 +1798,27 @@
           })
         });
         if (post.ok) {
-          const deadline = Date.now() + 300000;   // 5 minutes
+          const deadline = Date.now() + 1200000;   // 20 minutes (agent may chain many tool calls)
+          const seenChatActions = new Set();
           while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, 2500));
+            await new Promise(r => setTimeout(r, 1500));
             try {
               const lr = await fetch('/api/chat', { headers: { 'Accept': 'application/json' } });
               if (!lr.ok) continue;
               const body = await lr.json();
               const rows = Array.isArray(body) ? body : (body.data || []);
+
+              // Log every action the agent reports, live, in order.
+              const acts = rows
+                .filter(r => r && r.status === ('cprogress:' + chatId) && r.reply)
+                .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+              for (const a of acts) {
+                if (seenChatActions.has(a.reply)) continue;
+                seenChatActions.add(a.reply);
+                appendChatBubble('· ' + a.reply, 'agent');
+                setActivity(a.reply, true);
+              }
+
               const mine = rows
                 .filter(r => r && r.status === ('replied:' + chatId))
                 .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
@@ -1721,6 +1837,8 @@
       if (thinking && thinking.parentNode) thinking.parentNode.removeChild(thinking);
 
       if (agentReply) {
+        setActivity(`Agent answered · ${agentTools.length} tool call(s)`
+          + ` — ${Math.round((Date.now() - (activityStartedAt || Date.now())) / 1000)}s`, false);
         appendChatBubble(agentReply, 'agent');
         if (agentTools.length) {
           const names = agentTools.map(t => t.tool).join(', ');
@@ -1731,6 +1849,7 @@
 
       // 2) Agent unavailable and no scan data: say so plainly.
       if (!currentSimData) {
+        setActivity('Agent unreachable', false);
         appendChatBubble('The research agent is not reachable right now, and no scan has been run yet, so I have no data to reason over.', 'agent');
         return;
       }
@@ -1757,14 +1876,57 @@
         reply = `Current run: ${bld.length} anchored sites, ${tp.length} touchpoints, ${hs.length} hotspot(s) within ${d.anchor_radius_meters}m. ${hs.length ? 'Top site: ' + hs[0].name + '.' : ''} Ask me why a site ranked where it did, or about the radius or the pain signals.`;
       }
       appendChatBubble(reply, 'agent');
+      setActivity('Answered from the current scan result', false);
     }
 
+    /**
+     * Render markdown safely.
+     *
+     * HTML in the source is escaped first so that model output (and any real
+     * place/company names it quotes) can never inject markup into the page.
+     * Falls back to escaped plain text if the markdown library is unavailable.
+     */
+    function renderMarkdown(text) {
+      const escapeHtml = (s) => String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+      const safe = escapeHtml(text);
+      try {
+        if (window.marked && typeof window.marked.parse === 'function') {
+          return window.marked.parse(safe, { breaks: true, gfm: true });
+        }
+      } catch (e) { /* fall through to plain text */ }
+
+      // Minimal fallback: keep line breaks and emphasise code spans.
+      return safe
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    }
+
+    /**
+     * Append a chat entry.
+     *
+     * Agent replies render as full-width markdown prose with no surrounding box;
+     * only the user's own messages keep a bubble.
+     */
     function appendChatBubble(text, sender) {
       const box = document.getElementById('chat-messages');
-      const bubble = document.createElement('div');
-      bubble.className = `chat-bubble ${sender === 'user' ? 'bubble-user' : 'bubble-agent'}`;
-      bubble.innerHTML = sender === 'agent' ? `<strong>King Maker</strong><br>${text}` : text;
-      box.appendChild(bubble);
+      const el = document.createElement('div');
+
+      if (sender === 'agent') {
+        el.className = 'chat-agent-text';
+        el.innerHTML = renderMarkdown(text);
+      } else {
+        el.className = 'chat-bubble bubble-user';
+        el.innerText = text;
+      }
+
+      box.appendChild(el);
       box.scrollTop = box.scrollHeight;
     }
 
