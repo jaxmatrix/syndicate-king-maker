@@ -177,6 +177,13 @@ def _post(prompt: str, max_tokens: int, timeout: int) -> Dict[str, Any]:
         ],
         "max_tokens": max_tokens,
         "temperature": 0.2,
+        # Reasoning is disabled deliberately. This task is selection and
+        # paraphrase over evidence that is already in the prompt, not problem
+        # solving. Leaving reasoning on let it consume the entire token budget
+        # on some runs (finish_reason=length, empty content), and it cost
+        # 100-1500 reasoning tokens plus seconds of latency for no gain.
+        # Measured: 152 reasoning tokens / 4.1s -> 0 tokens / 1.8s.
+        "reasoning": {"enabled": False},
     }).encode("utf-8")
 
     req = urllib.request.Request(

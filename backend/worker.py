@@ -95,6 +95,38 @@ def complete_run(task_id, user_id, company_name, payload, result):
     except Exception as e:
         logger.error(f"Error publishing completed research run: {e}")
 
+def publish_progress(task_id, user_id, company_name, label):
+    """
+    Publish one action line for a run in progress.
+
+    Progress is published as its own append-only queue record (status
+    'progress:<taskId>') because the queue offers no update operation. The client
+    polls and renders these in order, so the chat log shows every action the run
+    actually performs instead of a silent spinner.
+    """
+    url = f"{HELIX_URL}{QUEUE_PATH}"
+    payload = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id or "guest",
+        "company_name": company_name or "",
+        "payload": "{}",
+        "result": label,
+        "status": f"progress:{task_id}",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Host": APP_HOST, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            resp.read()
+        logger.info(f"[{task_id[:8]}] {label}")
+    except Exception as e:
+        logger.debug(f"progress publish failed: {e}")
+
+
 def process_task(t, task_id):
     """Execute one queued research run and publish its result."""
     logger.info(f"Processing research request {task_id} for {t.get('company_name')}")
@@ -103,11 +135,18 @@ def process_task(t, task_id):
     except Exception:
         payload = {}
 
+    user_id = t.get("user_id", "guest")
+    company_name = t.get("company_name", "")
+
+    def on_progress(label):
+        publish_progress(task_id, user_id, company_name, label)
+
     try:
-        res = engine.execute_research_run(payload)
-        complete_run(task_id, t.get("user_id", "guest"), t.get("company_name", ""), payload, res)
+        res = engine.execute_research_run(payload, progress=on_progress)
+        complete_run(task_id, user_id, company_name, payload, res)
     except Exception as ex:
         logger.error(f"Error running research pipeline for {task_id}: {ex}")
+        publish_progress(task_id, user_id, company_name, f"Scan failed · {ex}")
 
 
 def run_worker_loop():

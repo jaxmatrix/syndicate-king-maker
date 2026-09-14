@@ -752,7 +752,8 @@ class SyndicateGraphEngine:
         return clusters
 
     # Master Execution Pipeline
-    def execute_research_run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def execute_research_run(self, payload: Dict[str, Any],
+                             progress=None) -> Dict[str, Any]:
         """
         Runs the full Syndicate research pipeline for ONE anchor point.
 
@@ -760,7 +761,21 @@ class SyndicateGraphEngine:
         retrieved from a real source (Google Places, Anakin search, Reddit Wire
         reads) or extracted from that retrieved evidence, and every claim carries
         a citation. Nothing is invented.
+
+        `progress` is an optional callable accepting a single label string. It is
+        invoked as each stage completes so callers can surface the run's actions
+        live (the worker publishes them to the chat log). Failures inside the
+        callback are swallowed - progress reporting must never break a run.
         """
+
+        def emit(label: str) -> None:
+            if progress is None:
+                return
+            try:
+                progress(label)
+            except Exception as exc:  # never let logging break the pipeline
+                print(f"  ⚠ progress emit failed: {exc}")
+
         company_name = payload.get("company_name", "Acme Enterprise")
         business_type = payload.get("business_type", "Corporate Services")
         offering = payload.get("offering", "High-volume delivery and management")
@@ -772,6 +787,7 @@ class SyndicateGraphEngine:
         if raw_lat is None or raw_lng is None:
             # No anchor => no scan. Never invent a location.
             print("✗ Research run rejected: no anchor coordinates supplied.")
+            emit("Scan rejected · no target pin was set")
             return {
                 "status": "error",
                 "error": "anchor_required",
@@ -795,11 +811,20 @@ class SyndicateGraphEngine:
         scan_radius = int(payload.get("radius_meters") or 1500)
 
         print(f"🚀 Research run: {company_name} | {business_type} @ {anchor['lat']},{anchor['lng']} r={scan_radius}m")
+        emit(f"Scan started · {company_name or 'business'} · radius {scan_radius}m")
 
         # Step 1: ICP intelligence - real evidence retrieval + grounded extraction
+        emit("N1 · Retrieving citable evidence from the web and Reddit…")
         icp_insights = self.run_icp_problem_mining(
             business_type, offering, sample_customers, company_name=company_name
         )
+        ev_counts = icp_insights.get("evidence_counts") or {}
+        subs = icp_insights.get("subreddits") or []
+        emit(f"N1 · Retrieved {ev_counts.get('total', 0)} evidence items "
+             f"({ev_counts.get('search', 0)} web, {ev_counts.get('reddit_threads', 0)} threads)"
+             + (f" from {', '.join('r/' + s for s in subs[:3])}" if subs else ""))
+        emit(f"N2 · Extracted {len(icp_insights.get('pain_points') or [])} cited pain points, "
+             f"{len(icp_insights.get('buying_triggers') or [])} buying triggers")
 
         # Only if the research produced no ICP titles at all do we fall back to a
         # labelling heuristic - and it is flagged so it is never mistaken for
@@ -812,14 +837,17 @@ class SyndicateGraphEngine:
 
         # Step 1b: real demand signals (hiring/expansion) for the ICP roles.
         # Omitted entirely when nothing usable is found - never substituted.
+        emit("N3 · Searching for real hiring and expansion signals…")
         demand_signals = self.collect_demand_signals(
             business_type=business_type,
             offering=offering,
             area_label=target_city if target_city and target_city != "Target Coordinates" else "",
             icp_titles=icp_insights.get("derived_icp_titles") or [],
         )
+        emit(f"N3 · Demand signals: {len(demand_signals)} url-backed finding(s)")
 
         # Step 2: Target buildings - real Places places inside the scan radius
+        emit(f"N4 · Scanning real commercial sites within {scan_radius}m…")
         try:
             buildings = self.find_target_buildings(
                 lat=anchor["lat"],
@@ -833,6 +861,7 @@ class SyndicateGraphEngine:
             # Misconfiguration must surface as an error, never as a scan that
             # "completed" with nothing in it.
             print(f"✗ Research run aborted: {exc}")
+            emit(f"Scan aborted · {exc}")
             return {
                 "status": "error",
                 "error": "engine_unavailable",
@@ -854,7 +883,10 @@ class SyndicateGraphEngine:
                 "counts": {"buildings": 0, "touchpoints": 0, "hotspots": 0}
             }
 
+        emit(f"N4 · {len(buildings)} real sites found within {scan_radius}m")
+
         # Step 3: Offline touchpoints around the strongest discovered buildings
+        emit("N5 · Mapping dining, coffee and transit touchpoints…")
         all_touchpoints = []
         for b in buildings[:4]:
             tps = self.find_touchpoints_for_building(b["lat"], b["lng"], radius=450)
@@ -872,12 +904,16 @@ class SyndicateGraphEngine:
                 seen_tp.add(tkey)
                 deduped_touchpoints.append(tp)
 
+        emit(f"N5 · {len(deduped_touchpoints)} touchpoints mapped")
+
         # Step 4: Hotspots - centroids of the real discovered buildings
+        emit("N6 · Clustering hotspots from real coordinates…")
         hotspots = self.calculate_hotspot_clusters(
             buildings,
             radius_meters=scan_radius,
             business_type=business_type
         )
+        emit(f"N6 · {len(hotspots)} hotspot(s) clustered")
 
         # Weighted density surface, one point per real coordinate
         heatmap_points = [
@@ -927,7 +963,14 @@ class SyndicateGraphEngine:
 
         # N7: drop anything that cannot be traced to retrieved evidence. This runs
         # last so no unverifiable claim can reach the client.
-        return self.validate_grounding(result, icp_insights.get("evidence", []))
+        emit("N7 · Verifying every claim against its source…")
+        final = self.validate_grounding(result, icp_insights.get("evidence", []))
+        g = final.get("grounding") or {}
+        emit(f"N7 · Grounding: {g.get('claims_kept', 0)} claim(s) verified"
+             + (f", {g['claims_dropped']} discarded as unverifiable"
+                if g.get("claims_dropped") else ", none discarded"))
+        emit("Scan complete — results published")
+        return final
 
 
     # DEPRECATED: the old name is kept as an alias so any in-flight caller keeps
