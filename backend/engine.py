@@ -278,6 +278,133 @@ class SyndicateGraphEngine:
         }
 
     # ------------------------------------------------------------------
+    # N3: DEMAND SIGNALS (real, best-effort, omit-when-empty)
+    # ------------------------------------------------------------------
+    def collect_demand_signals(self, business_type: str, offering: str,
+                               area_label: str = "",
+                               icp_titles: Optional[List[str]] = None,
+                               max_items: int = 4) -> List[Dict[str, Any]]:
+        """
+        Retrieve real hiring / expansion / new-location signals for the sector and
+        the ICP roles, each carrying the URL it came from.
+
+        There is NO general-purpose job-search Wire action available (the Lever
+        action only covers Lever-hosted companies and 404s otherwise), so these
+        come from real search results instead. Returns [] when nothing usable is
+        found - the caller MUST omit the field rather than substitute wording.
+        This replaces the old per-building `hiring_signals` string, which claimed
+        Anakin Wire evidence that was never actually fetched.
+        """
+        titles = [t for t in (icp_titles or []) if isinstance(t, str)][:2]
+        queries: List[str] = []
+        if titles:
+            queries.append(f'hiring "{titles[0]}" {area_label} new office'.strip())
+        queries.append(f"{business_type} expansion new location {area_label} news".strip())
+
+        signals: List[Dict[str, Any]] = []
+        seen_urls = set()
+        for q in queries:
+            try:
+                res = self.anakin.search(q, limit=4)
+            except Exception as e:
+                print(f"  ⚠ demand-signal search failed ({q[:40]}...): {e}")
+                continue
+            if not isinstance(res, dict):
+                continue
+            for r in (res.get("results") or []):
+                url = (r.get("url") or r.get("link") or "").strip()
+                snippet = (r.get("snippet") or "").strip()
+                # A signal without a real URL is not a signal.
+                if not url.startswith("http") or not snippet or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                signals.append({
+                    "claim": snippet[:280],
+                    "source": (r.get("title") or "")[:160],
+                    "url": url,
+                    "date": r.get("date") or "",
+                })
+                if len(signals) >= max_items:
+                    break
+            if len(signals) >= max_items:
+                break
+
+        print(f"  ✓ Demand signals: {len(signals)} real item(s)")
+        return signals[:max_items]
+
+    # ------------------------------------------------------------------
+    # N7: GROUNDING VALIDATOR
+    # ------------------------------------------------------------------
+    def validate_grounding(self, result: Dict[str, Any],
+                           evidence: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Drop any claim that cannot be traced to retrieved evidence.
+
+        This is the structural guarantee that the app cannot present invented
+        research: a claim whose citation is missing from the evidence set - or a
+        demand signal with no URL - is discarded and counted, never rendered.
+        """
+        valid_ids = {e.get("id") for e in evidence if e.get("id")}
+        dropped = 0
+
+        icp = result.get("icp_intelligence") or {}
+
+        kept_pains = []
+        for p in icp.get("pain_points", []) or []:
+            eid = p.get("evidence_id") if isinstance(p, dict) else None
+            if eid and eid in valid_ids:
+                kept_pains.append(p)
+            else:
+                dropped += 1
+        icp["pain_points"] = kept_pains
+        icp["key_pain_points"] = [p.get("claim", "") for p in kept_pains]
+
+        kept_triggers = []
+        for t in icp.get("buying_triggers", []) or []:
+            eid = t.get("evidence_id") if isinstance(t, dict) else None
+            if eid and eid in valid_ids:
+                kept_triggers.append(t)
+            else:
+                dropped += 1
+        icp["buying_triggers"] = kept_triggers
+
+        # Only cite online spaces that literally appear in the evidence.
+        blob = json.dumps(evidence).lower()
+        kept_spaces = []
+        for s in icp.get("online_spaces", []) or []:
+            if not isinstance(s, str):
+                continue
+            token = s.lower().strip()
+            bare = token.lstrip("r/").replace(" ", "")
+            if token in blob or (bare and bare in blob.replace(" ", "")):
+                kept_spaces.append(s)
+            else:
+                dropped += 1
+        icp["online_spaces"] = kept_spaces
+
+        # Demand signals must carry a real URL.
+        signals = []
+        for s in result.get("demand_signals", []) or []:
+            if isinstance(s, dict) and str(s.get("url", "")).startswith("http"):
+                signals.append(s)
+            else:
+                dropped += 1
+        result["demand_signals"] = signals
+
+        result["icp_intelligence"] = icp
+        result["grounding"] = {
+            "claims_total": dropped + len(kept_pains) + len(kept_triggers),
+            "claims_kept": len(kept_pains) + len(kept_triggers),
+            "claims_dropped": dropped,
+            "evidence_ids": sorted(valid_ids),
+        }
+        if dropped:
+            print(f"  ⚠ grounding dropped {dropped} unverifiable claim(s)")
+        else:
+            print(f"  ✓ grounding: all claims traceable to evidence")
+        return result
+
+    # ------------------------------------------------------------------
     # N2: EVIDENCE-GROUNDED ICP EXTRACTION (real LLM reasoning)
     # ------------------------------------------------------------------
     def run_icp_extraction(self, evidence: List[Dict[str, Any]], company_name: str,
@@ -304,82 +431,86 @@ class SyndicateGraphEngine:
             sample_customers=sample_customers,
         )
 
-    # Node 1: Industry & ICP Problem Formulator
-    def run_icp_problem_mining(self, business_type: str, offering: str, target_customers: str) -> Dict[str, Any]:
+    # Node 1: ICP Intelligence (N1 retrieval -> N2 extraction, both real)
+    def run_icp_problem_mining(self, business_type: str, offering: str,
+                               target_customers: str,
+                               company_name: str = "") -> Dict[str, Any]:
         """
-        Queries Reddit, Trustpilot, or web search via Anakin to extract real industry pain points,
-        frustrations with current vendors, and buying trigger signals.
-        """
-        search_prompt = f"{business_type} {offering} problems complaints recommendations reddit"
-        anakin_results = {}
-        try:
-            anakin_results = self.anakin.search(search_prompt, limit=4)
-        except Exception as e:
-            print(f"Anakin search fallback: {e}")
+        Compose the real research nodes: retrieve citable evidence (N1), then
+        extract ICP intelligence from that evidence only (N2).
 
-        # Extract pain points and key buying triggers
+        There are deliberately NO hardcoded pain points, subreddits or buying
+        triggers here. Everything returned is traceable to a retrieved source,
+        and `validate_grounding()` re-checks the citations afterwards.
+        """
+        retrieval = self.collect_evidence(
+            business_type=business_type,
+            offering=offering,
+            sample_customers=target_customers,
+        )
+        evidence = retrieval["evidence"]
+
+        extraction = self.run_icp_extraction(
+            evidence=evidence,
+            company_name=company_name or "the client",
+            business_type=business_type,
+            offering=offering,
+            sample_customers=target_customers,
+        )
+
+        # Flatten to the shape the rest of the pipeline and the UI consume, while
+        # keeping the citation on every claim.
         pain_points = [
-            f"Unreliable service windows and lack of transparency in {business_type} operations",
-            f"Hidden billing surcharges and poor SLA consistency reported across regional providers",
-            f"Slow turnaround times impacting day-to-day corporate operations and employee satisfaction",
-            f"Inability of existing vendors to scale coverage during high-volume periods"
+            {
+                "claim": p.get("claim", ""),
+                "evidence_id": p.get("evidence_id"),
+                "quote": p.get("quote", ""),
+            }
+            for p in extraction.get("pain_points", []) if isinstance(p, dict)
+        ]
+        buying_triggers = [
+            {
+                "claim": t.get("claim", ""),
+                "evidence_id": t.get("evidence_id"),
+            }
+            for t in extraction.get("buying_triggers", []) if isinstance(t, dict)
         ]
 
-        if "food" in business_type.lower() or "catering" in offering.lower() or "restaurant" in business_type.lower():
-            pain_points = [
-                "Lunch rush queues exceeding 25 minutes causing office workers to skip in-person meals",
-                "High delivery markups and cold corporate group orders from third-party delivery apps",
-                "Lack of clean, healthy, fast-casual grab-and-go options within 5 minutes walking distance",
-                "Limited catering customization for recurring corporate team lunches and client meetings"
-            ]
-        elif "cleaning" in business_type.lower() or "facility" in business_type.lower():
-            pain_points = [
-                "Post-COVID hybrid office schedules causing unpredictable cleaning needs and wasted retainers",
-                "High turnover in cleaning staff leading to security badge protocols being violated",
-                "Inconsistent restocking of eco-friendly consumables across multi-floor office suites",
-                "Lack of real-time digital auditing and proof-of-service checklists for property managers"
-            ]
-        elif "agency" in business_type.lower() or "marketing" in business_type.lower() or "creative" in business_type.lower():
-            pain_points = [
-                "Generic creative deliverables that fail to connect with high-net-worth tech/finance buyers",
-                "Agencies that over-promise on attribution and fail to demonstrate real revenue pipeline",
-                "Frustration with junior account managers handling critical growth campaigns",
-                "Need for rapid physical/experiential marketing activations near executive hubs"
-            ]
-
-        # Extract online spaces
-        online_spaces = [
-            f"r/{business_type.lower().replace(' ', '')}",
-            "r/bayarea",
-            "r/sanfrancisco",
-            "LinkedIn Local SF B2B Network",
-            "Fishbowl Corporate & Facility Groups",
-            "Nextdoor Commercial Districts"
-        ]
+        icp_titles = [t for t in extraction.get("icp_titles", []) if isinstance(t, str)]
+        online_spaces = [s for s in extraction.get("online_spaces", []) if isinstance(s, str)]
 
         return {
-            "search_query": search_prompt,
-            "anakin_search_hits": len(anakin_results.get("results", [])),
-            "derived_icp_titles": self._derive_icp_titles(business_type, offering),
-            "key_pain_points": pain_points,
-            "buying_triggers": [
-                "New office lease signing or expansion announcement",
-                "Dissatisfaction with incumbent vendor SLA or price hike",
-                "Executive mandate for localized vendor partnerships with sub-15min response time"
-            ],
-            "online_spaces": online_spaces
+            "evidence": evidence,
+            "evidence_counts": retrieval["counts"],
+            "search_queries": retrieval["queries"],
+            "subreddits": retrieval["subreddits"],
+            "pain_points": pain_points,
+            # Back-compat alias: the UI previously read key_pain_points as strings.
+            "key_pain_points": [p["claim"] for p in pain_points],
+            "buying_triggers": buying_triggers,
+            "derived_icp_titles": icp_titles,
+            "online_spaces": online_spaces,
+            "extraction": {
+                "model": extraction.get("model"),
+                "ok": bool(extraction.get("ok")),
+            },
         }
 
     def _derive_icp_titles(self, business_type: str, offering: str) -> List[str]:
+        """
+        DEPRECATED fallback: only used to label a run when extraction produced no
+        ICP titles at all. Anything it returns is marked derived_fallback so it is
+        never mistaken for researched output.
+        """
         bt = business_type.lower()
         if "food" in bt or "restaurant" in bt or "catering" in bt:
-            return ["Office Manager", "Head of People & Workplace Experience", "Corporate Event Coordinator", "Executive Assistant", "Tech Employees / Engineers"]
+            return ["Office Manager", "Head of People & Workplace Experience", "Corporate Event Coordinator"]
         elif "cleaning" in bt or "facility" in bt:
-            return ["Director of Facilities & Real Estate", "Property Manager", "Operations Manager", "Building Superintendent", "Workplace Ops Lead"]
+            return ["Director of Facilities & Real Estate", "Property Manager", "Operations Manager"]
         elif "agency" in bt or "marketing" in bt:
-            return ["Chief Marketing Officer (CMO)", "VP of Growth & Demand Gen", "Head of Brand Marketing", "Founder / Managing Partner"]
+            return ["Chief Marketing Officer (CMO)", "VP of Growth & Demand Gen", "Head of Brand Marketing"]
         else:
-            return ["Director of Operations", "VP of Business Development", "Procurement Lead", "Managing Director", "Office Experience Lead"]
+            return ["Director of Operations", "VP of Business Development", "Procurement Lead"]
 
     # Node 2: Office & Target Building Discovery (COORDINATE-ANCHORED)
     @staticmethod
@@ -660,8 +791,28 @@ class SyndicateGraphEngine:
 
         print(f"🚀 Research run: {company_name} | {business_type} @ {anchor['lat']},{anchor['lng']} r={scan_radius}m")
 
-        # Step 1: ICP & Sector Pain Mining (Reddit & Web via Anakin)
-        icp_insights = self.run_icp_problem_mining(business_type, offering, sample_customers)
+        # Step 1: ICP intelligence - real evidence retrieval + grounded extraction
+        icp_insights = self.run_icp_problem_mining(
+            business_type, offering, sample_customers, company_name=company_name
+        )
+
+        # Only if the research produced no ICP titles at all do we fall back to a
+        # labelling heuristic - and it is flagged so it is never mistaken for
+        # researched output.
+        if not icp_insights.get("derived_icp_titles"):
+            icp_insights["derived_icp_titles"] = self._derive_icp_titles(business_type, offering)
+            icp_insights["icp_titles_derived_fallback"] = True
+        else:
+            icp_insights["icp_titles_derived_fallback"] = False
+
+        # Step 1b: real demand signals (hiring/expansion) for the ICP roles.
+        # Omitted entirely when nothing usable is found - never substituted.
+        demand_signals = self.collect_demand_signals(
+            business_type=business_type,
+            offering=offering,
+            area_label=target_city if target_city and target_city != "Target Coordinates" else "",
+            icp_titles=icp_insights.get("derived_icp_titles") or [],
+        )
 
         # Step 2: Target buildings - real Places places inside the scan radius
         try:
@@ -676,7 +827,7 @@ class SyndicateGraphEngine:
         except RuntimeError as exc:
             # Misconfiguration must surface as an error, never as a scan that
             # "completed" with nothing in it.
-            print(f"✗ Syndicate scan aborted: {exc}")
+            print(f"✗ Research run aborted: {exc}")
             return {
                 "status": "error",
                 "error": "engine_unavailable",
@@ -732,7 +883,7 @@ class SyndicateGraphEngine:
             if tp.get("lat") and tp.get("lng"):
                 heatmap_points.append({"lat": tp["lat"], "lng": tp["lng"], "weight": 25})
 
-        return {
+        result = {
             "status": "success",
             "result_id": uuid.uuid4().hex,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -748,6 +899,10 @@ class SyndicateGraphEngine:
                 "sample_customers": sample_customers
             },
             "icp_intelligence": icp_insights,
+            # Real hiring/expansion signals, each with the URL it came from.
+            "demand_signals": demand_signals,
+            # The retrieved evidence everything above is traceable to.
+            "sources": icp_insights.get("evidence", []),
             # All coordinates below come straight from Google Places and are
             # therefore anchored to real geography, not to the dropped pin.
             "coordinate_source": "google_places",
@@ -758,9 +913,16 @@ class SyndicateGraphEngine:
             "counts": {
                 "buildings": len(buildings),
                 "touchpoints": len(deduped_touchpoints),
-                "hotspots": len(hotspots)
+                "hotspots": len(hotspots),
+                "evidence": len(icp_insights.get("evidence", [])),
+                "pain_points": len(icp_insights.get("pain_points", [])),
+                "demand_signals": len(demand_signals),
             }
         }
+
+        # N7: drop anything that cannot be traced to retrieved evidence. This runs
+        # last so no unverifiable claim can reach the client.
+        return self.validate_grounding(result, icp_insights.get("evidence", []))
 
 
     # DEPRECATED: the old name is kept as an alias so any in-flight caller keeps
